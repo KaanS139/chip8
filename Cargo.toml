@@ -1,0 +1,13 @@
+[workspace]
+
+members = [
+    "c8common",
+    "c8asm-proc",
+    "c8int"
+]
+
+resolver = "2"
+
+[workspace.dependencies]
+chip8_base = "0.2.0"
+log = "0.4.17"
