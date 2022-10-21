@@ -8,5 +8,7 @@ edition = "2021"
 [dependencies]
 chip8_base.workspace = true
 c8common.path = "../c8common"
+c8asm-proc.path = "../c8asm-proc"
 log.workspace = true
 simplelog = "0.12.0"
+tap.workspace = true

@@ -1,11 +1,13 @@
 [package]
-name = "c8common"
+name = "c8asm-proc"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+proc-macro = true
+
 [dependencies]
-log.workspace = true
-chip8_base.workspace = true
+c8common.path = "../c8common"
 tap.workspace = true

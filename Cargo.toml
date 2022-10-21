@@ -11,3 +11,4 @@ resolver = "2"
 [workspace.dependencies]
 chip8_base = "0.2.0"
 log = "0.4.17"
+tap = "1.0.1"

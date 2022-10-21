@@ -135,22 +135,30 @@ checksum = "ec8a7b6a70fde80372154c65702f00a0f56f3e1c36abbc6c440484be248856db"
 [[package]]
 name = "c8asm-proc"
 version = "0.1.0"
+dependencies = [
+ "c8common",
+ "tap",
+]
 
 [[package]]
 name = "c8common"
 version = "0.1.0"
 dependencies = [
+ "chip8_base",
  "log",
+ "tap",
 ]
 
 [[package]]
 name = "c8int"
 version = "0.1.0"
 dependencies = [
+ "c8asm-proc",
  "c8common",
  "chip8_base",
  "log",
  "simplelog",
+ "tap",
 ]
 
 [[package]]
@@ -1438,6 +1446,12 @@ dependencies = [
  "quote",
  "unicode-ident",
 ]
+
+[[package]]
+name = "tap"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "termcolor"

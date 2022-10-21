@@ -1,10 +1,12 @@
 use crate::prelude::*;
+use asm::ROM;
 use log::{debug, error, info, trace};
 use std::time::Duration;
+use tap::prelude::*;
 
 pub struct Chip8Interpreter {
     program_counter: Address,
-    memory: [Datum; (Address::MAX >> 4) as usize],
+    memory: ROM,
     display: Display,
     general_registers: [Datum; 16],
     register_i: Datum,
@@ -15,10 +17,13 @@ pub struct Chip8Interpreter {
 }
 
 impl Interpreter for Chip8Interpreter {
-    fn step(&mut self, keys: &Keys) -> Option<Display> {
+    fn step(&mut self, _keys: &Keys) -> Option<Display> {
         trace!("Beginning step.");
-        let datum = self.fetch();
-        let instruction = self.decode(datum).expect("Instructions should be valid!");
+        let d1 = self.fetch();
+        let d2 = self.fetch();
+        let instruction = self
+            .decode((d1, d2))
+            .expect("Instructions should be valid!");
 
         let commands = self.execute(instruction);
 
@@ -52,7 +57,7 @@ impl Interpreter for Chip8Interpreter {
 
 impl Chip8Interpreter {
     fn fetch(&mut self) -> Datum {
-        let datum = self.memory[self.program_counter as usize];
+        let datum = self.memory[self.program_counter];
         self.program_counter += 1;
         if self.program_counter >= 4096 {
             self.program_counter = 0;
@@ -61,28 +66,19 @@ impl Chip8Interpreter {
         datum
     }
 
-    fn decode(&mut self, datum: Datum) -> Result<Instruction, Vec<Datum>> {
-        debug!("Decoding {:X}", datum);
-        let mut processing = Instruction::try_from_datum(datum);
-        while let Err(e) = processing {
-            match e {
-                InstructionDecodeError::IncompleteInstruction(bytes) => {
-                    processing = Instruction::try_from_data(bytes, self.fetch())
-                }
-                InstructionDecodeError::InvalidInstruction(_) => {
-                    return Err(e.invalid_data().unwrap())
-                }
-            }
-        }
-        let instruction = processing.unwrap();
-        debug!("Instruction is {:?}", instruction);
-        Ok(instruction)
+    fn decode(&mut self, data: (Datum, Datum)) -> Result<Instruction, (Datum, Datum)> {
+        debug!("Decoding 0x{:0X}{:0X}", data.0, data.1);
+        let processing = Instruction::try_from_data(data);
+
+        processing
+            .tap_ok(|inst| debug!("Instruction is {:?}", inst))
+            .map_err(|e| e.invalid_data().unwrap())
     }
 
     fn execute(&mut self, instruction: Instruction) -> Vec<Command> {
         match instruction {
             Instruction::Nop => {
-                info!("NOP")
+                info!("Nop")
             }
             Instruction::Screen(screen_instruction) => match screen_instruction {
                 ScreenInstruction::Clear => {
@@ -93,7 +89,7 @@ impl Chip8Interpreter {
             Instruction::Jump(addr) => {
                 info!("Jump {:X}", addr);
                 if addr & 0xF000 != 0 {
-                    error!("Invalid jump address!");
+                    error!("Invalid jump address! 0x{:X} is out of bounds!", addr);
                     panic!()
                 }
                 self.program_counter = addr;
@@ -104,9 +100,30 @@ impl Chip8Interpreter {
     }
 
     pub fn new() -> Self {
-        let mut s = Self {
+        let program = asm::Assembler::new()
+            .label_str("start")
+            .nop()
+            .nop()
+            .label_str("begin_loop")
+            .cls()
+            .nop()
+            .jump("begin_loop")
+            .assemble();
+
+        program.save("roms/test.ch8");
+
+        // let program = c8asm_proc::c8asm!(
+        //     start: nop
+        //         nop,
+        //     begin_loop:
+        //         cls,
+        //         nop,
+        //         jp @begin_loop
+        // );
+
+        Self {
             program_counter: 0,
-            memory: [Datum(0); (Address::MAX >> 4) as usize],
+            memory: program,
             display: [[Pixel::Black; 64]; 32],
             general_registers: [Datum(0); 16],
             register_i: Datum(0),
@@ -114,15 +131,13 @@ impl Chip8Interpreter {
             stack_pointer: 0,
             stack: [Datum(0); 16],
             clock_frequency: 10.,
-        };
+        }
+    }
+}
 
-        s.memory[0] = Datum(0x00);
-        s.memory[1] = Datum(0xE0);
-
-        s.memory[4] = Datum(0x10);
-        s.memory[5] = Datum(0x00);
-
-        s
+impl Default for Chip8Interpreter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
