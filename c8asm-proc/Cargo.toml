@@ -9,5 +9,4 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-c8common.path = "../c8common"
 tap.workspace = true

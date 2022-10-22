@@ -1,11 +1,10 @@
 mod interpreter;
-
 pub use interpreter::Chip8Interpreter;
 
 pub(crate) mod prelude {
-    pub(crate) use chip8_base::{Display, Interpreter, Keys, Pixel};
+    pub(crate) use chip8_base::{Interpreter, Keys};
 
     pub(crate) use c8common::{
-        asm, Address, Datum, Instruction, InstructionDecodeError, ScreenInstruction,
+        asm, memory::Memory, Address, Datum, Display, GeneralRegister, Instruction, RawInstruction,
     };
 }

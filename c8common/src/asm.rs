@@ -1,24 +1,75 @@
+use crate::instruction::RawInstruction;
+use crate::memory::Memory;
 use crate::{Address, Datum, GeneralRegister as VX, NUMBER_OF_ADDRESSES};
-use log::error;
+use log::{error, info};
+use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::ops::Index;
+use std::ops::{BitOrAssign, Index};
+use std::path::Path;
 use tap::prelude::*;
 
-pub mod parsing;
+pub mod conversion;
+pub mod tokenizing;
 
 #[derive(Debug, Clone)]
 #[allow(missing_copy_implementations)]
-pub struct ROM([Datum; NUMBER_OF_ADDRESSES]);
+pub struct ROM([Datum; NUMBER_OF_ADDRESSES - 0x200]);
 
 impl ROM {
     pub fn new() -> Self {
-        Self([Datum(0); NUMBER_OF_ADDRESSES])
+        Self([Datum(0); NUMBER_OF_ADDRESSES - 0x200])
     }
 
     pub fn save(&self, path: impl AsRef<std::path::Path>) {
         let buf = self.0.map(|datum| datum.0);
         std::fs::write(path, &buf).expect("failed to write to file!")
     }
+
+    pub fn from_bytes(mut bytes: Vec<u8>) -> Result<Self, LoadError> {
+        if bytes.len() < NUMBER_OF_ADDRESSES - 0x200 {
+            info!(
+                "Padding bytes from {} to {}",
+                bytes.len(),
+                NUMBER_OF_ADDRESSES - 0x200
+            );
+            bytes.extend(std::iter::repeat(0).take(NUMBER_OF_ADDRESSES - 0x200 - bytes.len()))
+        }
+        match bytes.len().cmp(&(NUMBER_OF_ADDRESSES - 0x200)) {
+            Ordering::Less => panic!("Should not be possible!"),
+            Ordering::Equal => {
+                let bytes = bytes
+                    .try_conv::<[u8; NUMBER_OF_ADDRESSES - 0x200]>()
+                    .unwrap();
+                let data = bytes.map(Datum);
+                Ok(Self(data))
+            }
+            Ordering::Greater => Err(LoadError::TooBig { size: bytes.len() }),
+        }
+    }
+
+    pub fn from_file(path: impl AsRef<Path>) -> Result<Self, FileLoadError> {
+        let file_contents = std::fs::read(path).map_err(FileLoadError::IO)?;
+        Self::from_bytes(file_contents).map_err(FileLoadError::LoadError)
+    }
+
+    pub(crate) fn into_data(self) -> [Datum; NUMBER_OF_ADDRESSES - 0x200] {
+        self.0
+    }
+
+    pub fn to_memory(self) -> Memory {
+        Memory::from_rom(self)
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum LoadError {
+    TooBig { size: usize },
+}
+
+#[derive(Debug)]
+pub enum FileLoadError {
+    IO(std::io::Error),
+    LoadError(LoadError),
 }
 
 impl Default for ROM {
@@ -53,7 +104,7 @@ impl Assembler {
         Self {
             instructions: [(); NUMBER_OF_ADDRESSES >> 1].map(|_| AsmInstruction::NOP),
             labels: Default::default(),
-            counter: 0,
+            counter: Address::ZERO,
         }
     }
 
@@ -63,18 +114,18 @@ impl Assembler {
             instructions,
             ..
         } = self;
-        let mut out_rom = [Datum(0); NUMBER_OF_ADDRESSES];
-        for i in 0..(NUMBER_OF_ADDRESSES >> 1) {
+        let mut out_rom = [Datum(0); NUMBER_OF_ADDRESSES - 0x200];
+        for i in 0..((NUMBER_OF_ADDRESSES - 0x200) >> 1) {
             let data = instructions[i].to_data(labels);
-            out_rom[i * 2] = data.0;
-            out_rom[i * 2 + 1] = data.1;
+            out_rom[i * 2] = data.first();
+            out_rom[i * 2 + 1] = data.second();
         }
         ROM(out_rom)
     }
 
     pub fn instruction(&mut self, instruction: AsmInstruction) -> &mut Self {
-        self.instructions[self.counter as usize] = instruction;
-        self.counter += 1;
+        self.instructions[self.counter.conv::<usize>()] = instruction;
+        self.counter.increment();
         self
     }
 
@@ -112,16 +163,17 @@ impl Default for Assembler {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Source {
     Byte(u8),
     Register(VX),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum JumpAddress {
     Address(Address),
     Label(String),
+    Relative(Address),
 }
 
 impl From<String> for JumpAddress {
@@ -142,7 +194,7 @@ impl From<Address> for JumpAddress {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum AsmInstruction {
     NOP,
     #[deprecated]
@@ -164,28 +216,39 @@ pub enum AsmInstruction {
 }
 
 impl AsmInstruction {
-    fn to_data(&self, labels: &HashMap<String, Address>) -> (Datum, Datum) {
-        let tuple = match self {
-            AsmInstruction::NOP => (0x00, 0x00),
+    fn to_data(&self, labels: &HashMap<String, Address>) -> RawInstruction {
+        match self {
+            AsmInstruction::NOP => 0x0000.into(),
             #[allow(deprecated, clippy::identity_op)]
-            AsmInstruction::SYS(addr) => (0x00 | (addr >> 8) as u8, (addr & 0xFF) as u8),
-            AsmInstruction::CLS => (0x00, 0xE0),
-            AsmInstruction::RET => (0x00, 0xEE),
+            AsmInstruction::SYS(addr) => {
+                let mut raw = RawInstruction::from_raw_bytes(addr.to_bytes());
+                raw.highest().bitor_assign(0x00);
+                raw
+            }
+            AsmInstruction::CLS => 0x00E0.into(),
+            AsmInstruction::RET => 0x00EE.into(),
             AsmInstruction::JP(to) => {
-                let addr = match to {
-                    JumpAddress::Label(s) => labels
-                        .get(s)
-                        .tap_none(|| error!("Label {} does not exist!", s))
-                        .unwrap(),
-                    JumpAddress::Address(addr) => addr,
-                };
-                (0x10 | (addr >> 8) as u8, (addr & 0xFF) as u8)
+                if let JumpAddress::Relative(rel_addr) = to {
+                    let mut raw = RawInstruction::from_raw_bytes(rel_addr.to_bytes());
+                    raw.highest().bitor_assign(0xB0);
+                    raw
+                } else {
+                    let addr = match to {
+                        JumpAddress::Label(s) => labels
+                            .get(s)
+                            .tap_none(|| error!("Label {} does not exist!", s))
+                            .unwrap(),
+                        JumpAddress::Address(addr) => addr,
+                        JumpAddress::Relative(_) => unreachable!(),
+                    };
+                    let mut raw = RawInstruction::from_raw_bytes(addr.to_bytes());
+                    raw.highest().bitor_assign(0x10);
+                    raw
+                }
             }
             AsmInstruction::LD(_, _) => {
                 todo!()
             }
-        };
-
-        (Datum(tuple.0), Datum(tuple.1))
+        }
     }
 }

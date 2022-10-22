@@ -9,3 +9,11 @@ edition = "2021"
 log.workspace = true
 chip8_base.workspace = true
 tap.workspace = true
+
+[dependencies.c8asm-proc]
+path = "../c8asm-proc"
+optional = true
+
+[features]
+default = []
+proc-assembler = ["dep:c8asm-proc"]

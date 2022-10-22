@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::ops::RangeInclusive;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -8,12 +9,23 @@ pub enum Item {
     Colon,
     Semicolon,
     Hash,
+    OpenBrace,
+    CloseBrace,
+}
+
+impl Item {
+    pub(crate) fn ident_name(&self) -> Option<&String> {
+        match self {
+            Self::Ident(s) => Some(s),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SpannedItem {
-    item: Item,
-    at: RangeInclusive<Location>,
+    pub(crate) item: Item,
+    pub(crate) at: RangeInclusive<Location>,
 }
 
 impl SpannedItem {
@@ -26,6 +38,30 @@ impl SpannedItem {
 pub struct Location {
     line: usize,
     column: usize,
+}
+
+impl PartialOrd for Location {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Location {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let s = (self.line, self.column);
+        let o = (other.line, other.column);
+        s.cmp(&o)
+    }
+}
+
+impl Location {
+    pub fn compare_ranges(a: &RangeInclusive<Self>, b: &RangeInclusive<Self>) -> Option<Ordering> {
+        if a.end() >= b.start() || b.end() >= a.start() {
+            None
+        } else {
+            a.start().partial_cmp(b.start())
+        }
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -64,8 +100,8 @@ impl MultiCharItem {
     }
 }
 
-pub fn tokenize(original: &str) -> Result<Vec<SpannedItem>, ParseError> {
-    use ParseError::*;
+pub fn tokenize(original: &str) -> Result<Vec<SpannedItem>, TokenizingError> {
+    use TokenizingError::*;
     let mut output = Vec::new();
 
     let mut current_line: usize = 0;
@@ -93,6 +129,8 @@ pub fn tokenize(original: &str) -> Result<Vec<SpannedItem>, ParseError> {
                 ':' => Some(Item::Colon),
                 ';' => Some(Item::Semicolon),
                 '#' => Some(Item::Hash),
+                '[' => Some(Item::OpenBrace),
+                ']' => Some(Item::CloseBrace),
                 _ => None,
             };
 
@@ -166,6 +204,16 @@ pub fn tokenize(original: &str) -> Result<Vec<SpannedItem>, ParseError> {
             continue;
         }
 
+        if character == '-' && current_ident.is_none() {
+            current_ident = Some((
+                Location {
+                    line: current_line,
+                    column: index.checked_sub(old_line_end).unwrap(),
+                },
+                MultiCharItem::number(character),
+            ));
+        }
+
         return Err(UnrecognisedItem {
             offending_character: character,
             at: single_character_range,
@@ -176,7 +224,7 @@ pub fn tokenize(original: &str) -> Result<Vec<SpannedItem>, ParseError> {
 }
 
 #[derive(Debug)]
-pub enum ParseError {
+pub enum TokenizingError {
     UnrecognisedItem {
         offending_character: char,
         at: RangeInclusive<Location>,
