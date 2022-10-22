@@ -1,0 +1,10 @@
+# For inter-process communication
+https://riptutorial.com/rust/example/4404/a-simple-tcp-client-and-server-application--echo
+
+# Chip-8 resources
+https://chip-8.github.io/links/
+https://tobiasvl.github.io/blog/write-a-chip-8-emulator/
+https://github.com/mattmikolay/chip-8/wiki/CHIP%E2%80%908-Instruction-Set
+
+# Chip-8 ROMs
+https://github.com/kripod/chip8-roms/blob/master/demos/Maze%20%5BDavid%20Winter%2C%20199x%5D.ch8
