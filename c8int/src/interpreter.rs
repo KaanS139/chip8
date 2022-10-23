@@ -1,7 +1,8 @@
 use crate::prelude::*;
 use asm::ROM;
-use log::{debug, error, info, trace, warn};
-use std::time::Duration;
+use c8common::control::{ControlledInterpreter, FrameInfo};
+use c8common::key::Keys;
+use log::{debug, error, info, warn};
 use tap::prelude::*;
 
 pub struct Chip8Interpreter {
@@ -11,37 +12,52 @@ pub struct Chip8Interpreter {
     general_registers: [Datum; 16],
     register_i: u16,
     register_vf: Datum,
-    stack_pointer: u8,
     stack: Vec<Address>,
-    clock_frequency: f32,
 }
 
-impl Interpreter for Chip8Interpreter {
-    fn step(&mut self, _keys: &Keys) -> Option<chip8_base::Display> {
-        trace!("Beginning step.");
+impl ControlledInterpreter for Chip8Interpreter {
+    fn step(&mut self, keys: Keys, frame: &mut FrameInfo) {
         let d1 = self.fetch();
         let d2 = self.fetch();
-        let instruction = self
-            .decode((d1, d2))
-            .expect("Instructions should be valid!");
+        let instruction = Self::decode((d1, d2)).expect("Instructions should be valid!");
 
-        let screen_state = self.execute(instruction);
-
-        trace!("Step complete!");
-
-        if screen_state == ScreenState::Modified {
-            debug!("Screen has been updated.");
-            return Some(*self.display.raw());
-        }
-        None
+        self.execute(instruction, keys, frame);
     }
 
-    fn speed(&self) -> Duration {
-        Duration::from_secs_f32(1. / self.clock_frequency)
+    fn display(&self) -> &Display {
+        &self.display
     }
 
-    fn buzzer_active(&self) -> bool {
-        false
+    fn register(&self, register: GeneralRegister) -> &Datum {
+        &self.general_registers[register.index()]
+    }
+
+    fn register_mut(&mut self, register: GeneralRegister) -> &mut Datum {
+        &mut self.general_registers[register.index()]
+    }
+
+    fn stack(&self) -> &Vec<Address> {
+        &self.stack
+    }
+
+    fn stack_mut(&mut self) -> &mut Vec<Address> {
+        &mut self.stack
+    }
+
+    fn memory(&self) -> &Memory {
+        &self.memory
+    }
+
+    fn memory_mut(&mut self) -> &mut Memory {
+        &mut self.memory
+    }
+
+    fn program_counter(&self) -> Address {
+        self.program_counter
+    }
+
+    fn program_counter_mut(&mut self) -> &mut Address {
+        &mut self.program_counter
     }
 }
 
@@ -60,7 +76,7 @@ impl Chip8Interpreter {
         datum
     }
 
-    fn decode(&mut self, data: (Datum, Datum)) -> Result<Instruction, RawInstruction> {
+    fn decode(data: (Datum, Datum)) -> Result<Instruction, RawInstruction> {
         debug!("Decoding 0x{:0X}{:0X}", data.0, data.1);
         let processing = Instruction::try_from_data(data.into());
 
@@ -69,7 +85,7 @@ impl Chip8Interpreter {
             .map_err(|e| e.invalid_data().unwrap())
     }
 
-    fn execute(&mut self, instruction: Instruction) -> ScreenState {
+    fn execute(&mut self, instruction: Instruction, keys: Keys, frame: &mut FrameInfo) {
         match instruction {
             Instruction::Nop => {
                 info!("Nop")
@@ -77,7 +93,7 @@ impl Chip8Interpreter {
             Instruction::ClearScreen => {
                 info!("Clear screen");
                 self.display.clear();
-                return ScreenState::Modified;
+                frame.modify_screen();
             }
             Instruction::Jump(addr) => {
                 info!("Jump {:X}", addr);
@@ -123,78 +139,39 @@ impl Chip8Interpreter {
                     y_coord,
                     self.memory.substring(addr, number_of_bytes.as_half_byte()),
                 );
-                return ScreenState::Modified;
+                frame.modify_screen()
             }
         }
-
-        ScreenState::Unchanged
     }
 
-    fn set_register(&mut self, register: GeneralRegister, datum: Datum) {
-        self.general_registers[register.index()] = datum;
-    }
-
-    fn get_register(&self, register: GeneralRegister) -> Datum {
-        self.general_registers[register.index()]
-    }
-
-    fn stack_push(&mut self, addr: Address) {
-        if self.stack.len() >= 16 {
-            panic!("Stack overflow!")
-        }
-        self.stack.push(addr);
-    }
-
-    fn stack_pop(&mut self) -> Address {
-        self.stack.pop().expect("Stack underflow!")
-    }
-
-    pub fn new() -> Self {
-        // let program = asm::Assembler::new()
-        //     .label_str("start")
-        //     .nop()
-        //     .nop()
-        //     .label_str("begin_loop")
-        //     .cls()
-        //     .nop()
-        //     .jump("begin_loop")
-        //     .assemble();
-        //
-        // program.save("roms/test.ch8");
-
-        let program = ROM::from_file("roms/UWCS.ch8").unwrap();
-
-        // let program = c8asm_proc::c8asm!(
-        //     start: nop
-        //         nop,
-        //     begin_loop:
-        //         cls,
-        //         nop,
-        //         jp @begin_loop
-        // );
-
+    fn empty() -> Self {
         Self {
-            program_counter: Address::new(0x200),
-            memory: program.to_memory(),
+            program_counter: Address::PROGRAM_START,
+            memory: Memory::empty(),
             display: Display::blank(),
             general_registers: [Datum(0); 16],
             register_i: 0,
             register_vf: Datum(0),
-            stack_pointer: 0,
             stack: Vec::with_capacity(16),
-            clock_frequency: 5.,
         }
     }
-}
 
-impl Default for Chip8Interpreter {
-    fn default() -> Self {
-        Self::new()
+    pub fn new_assembled<F: FnOnce(&mut asm::Assembler) -> &mut asm::Assembler>(with: F) -> Self {
+        let mut assembler = asm::Assembler::new();
+        (with)(&mut assembler);
+        let program = assembler.assemble();
+        Self::new_from_rom(program)
     }
-}
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-enum ScreenState {
-    Unchanged,
-    Modified,
+    pub fn new_from_file(path: impl AsRef<std::path::Path>) -> Self {
+        let program = ROM::from_file(path).unwrap();
+        Self::new_from_rom(program)
+    }
+
+    pub fn new_from_rom(rom: ROM) -> Self {
+        Self {
+            memory: rom.to_memory(),
+            ..Self::empty()
+        }
+    }
 }

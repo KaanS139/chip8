@@ -6,6 +6,8 @@ impl Address {
     pub const NUMBER_OF_ADDRESSES: usize = (Self::MAX.0 + 1) as usize;
     pub const ZERO: Self = Self(0);
 
+    pub const PROGRAM_START: Self = Self(0x200);
+
     pub fn new(at: u16) -> Self {
         assert!(at <= Self::MAX.0);
         Self(at)

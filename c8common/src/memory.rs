@@ -28,6 +28,14 @@ impl Memory {
         Self(out_data)
     }
 
+    pub fn empty() -> Self {
+        let mut inner = [Datum(0); NUMBER_OF_ADDRESSES];
+        // Add an illegal instruction at the entrypoint
+        inner[Address::PROGRAM_START.as_u16() as usize] = Datum(0x00);
+        inner[Address::PROGRAM_START.as_u16() as usize + 1] = Datum(0xF0);
+        Self(inner)
+    }
+
     pub fn substring(&self, start: Address, number: u8) -> &[Datum] {
         let start = start.as_u16() as usize;
         let end = start + number as usize;

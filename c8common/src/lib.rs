@@ -20,46 +20,32 @@ pub mod memory;
 pub mod display;
 pub use display::Display;
 
+pub mod control;
+pub mod key;
+
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum GeneralRegister {
-    V0,
-    V1,
-    V2,
-    V3,
-    V4,
-    V5,
-    V6,
-    V7,
-    V8,
-    V9,
-    VA,
-    VB,
-    VC,
-    VD,
-    VE,
-    VF,
+    V0 = 0,
+    V1 = 1,
+    V2 = 2,
+    V3 = 3,
+    V4 = 4,
+    V5 = 5,
+    V6 = 6,
+    V7 = 7,
+    V8 = 8,
+    V9 = 9,
+    VA = 10,
+    VB = 11,
+    VC = 12,
+    VD = 13,
+    VE = 14,
+    VF = 15,
 }
 
 impl GeneralRegister {
     pub fn index(self) -> usize {
-        match self {
-            GeneralRegister::V0 => 0,
-            GeneralRegister::V1 => 1,
-            GeneralRegister::V2 => 2,
-            GeneralRegister::V3 => 3,
-            GeneralRegister::V4 => 4,
-            GeneralRegister::V5 => 5,
-            GeneralRegister::V6 => 6,
-            GeneralRegister::V7 => 7,
-            GeneralRegister::V8 => 8,
-            GeneralRegister::V9 => 9,
-            GeneralRegister::VA => 10,
-            GeneralRegister::VB => 11,
-            GeneralRegister::VC => 12,
-            GeneralRegister::VD => 13,
-            GeneralRegister::VE => 14,
-            GeneralRegister::VF => 15,
-        }
+        self as usize
     }
 
     pub fn from_nibble(nibble: Nibble) -> Self {
