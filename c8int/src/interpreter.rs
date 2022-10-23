@@ -219,7 +219,10 @@ impl Chip8Interpreter {
             }
             Instruction::Shr(rx) => {
                 info!("SHR {:?}", rx);
-                todo!();
+                let number = self.get_register(rx).0;
+                let right = number & 0b1;
+                self.set_vf(Datum(if right != 0 {1} else {0}));
+                self.set_register(rx, Datum(number >> 1));
             }
             Instruction::SubN { x: rx, y: ry } => {
                 info!("SUBN {:?}, {:?}", rx, ry);
@@ -227,7 +230,10 @@ impl Chip8Interpreter {
             }
             Instruction::Shl(rx) => {
                 info!("SHL {:?}", rx);
-                todo!();
+                let number = self.get_register(rx).0;
+                let right = number & 0b10000000;
+                self.set_vf(Datum(if right != 0 {1} else {0}));
+                self.set_register(rx, Datum(number << 1));
             }
 
             Instruction::LoadImmediate(value) => {
@@ -333,7 +339,11 @@ impl Chip8Interpreter {
                 self.memory[Address::new(i + 2)] = Datum(units);
             }
             Instruction::WriteMultiple(until_reg) => {
-                todo!()
+                info!("Read to I+ until {:?}", until_reg);
+                for (i, reg) in until_reg.until_including().enumerate() {
+                    let data = self.get_register(reg);
+                    self.memory[Address::new(self.register_i + i as u16)] = data;
+                }
             }
             Instruction::ReadMultiple(until_reg) => {
                 info!("Read from I+ through {:?}", until_reg);

@@ -86,4 +86,9 @@ impl<T: ControlledToInterpreter> Interpreter<T> {
         self.step_frequency = frequency;
         self
     }
+
+    pub fn with_simulated_frequency(mut self, frequency_scale: Option<f32>) -> Self {
+        self.internal_frequency_scale = frequency_scale;
+        self
+    }
 }
