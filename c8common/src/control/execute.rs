@@ -1,4 +1,4 @@
-use crate::control::{ControlledInterpreter, ControlledToInterpreter, FrameInfo};
+use crate::control::{ControlledInterpreter, ControlledToInterpreter, FrameInfo, InterpreterState};
 use crate::key::Keys;
 use chip8_base::{Display, Keys as RawKeys};
 use log::{debug, trace};
@@ -9,21 +9,48 @@ pub struct Interpreter<I: ControlledInterpreter> {
     inner: I,
     buzzer_active: bool,
     step_frequency: u32,
-    internal_speed: Option<u32>,
+    internal_frequency_scale: Option<f32>,
+    sixty_hertz_progress: Duration,
+    state: InterpreterState,
 }
 
 impl<T: ControlledInterpreter> chip8_base::Interpreter for Interpreter<T> {
     fn step(&mut self, keys: &RawKeys) -> Option<Display> {
+        match self.state {
+            InterpreterState::Normal => {}
+            InterpreterState::Held => {
+                todo!("Check for resume")
+            }
+            InterpreterState::BusyWaiting => return None,
+        }
         trace!("Beginning step.");
-        // TODO: Some registers are auto-decremented based on real time. Use the internal_speed to be able to vary the emulated speed;
         let mut frame_info = FrameInfo::empty();
+
+        let internal_frequency = self.internal_frequency_scale.unwrap_or(1.);
+        let more_progress =
+            Duration::from_secs_f32(self.speed().as_secs_f32() * internal_frequency);
+        self.sixty_hertz_progress += more_progress;
+        if self.sixty_hertz_progress.as_secs_f32() >= 1. / 60. {
+            self.sixty_hertz_progress = Duration::ZERO;
+            if self.inner.timer_tick_60hz().buzzer_active() {
+                frame_info.set_buzzer(true);
+            } else {
+                frame_info.set_buzzer(false);
+            }
+        }
         self.inner.step(Keys::from_raw(keys), &mut frame_info);
         trace!("Step complete!");
 
         let FrameInfo {
             screen_modified,
             buzzer_change_state,
+            entered_busywait,
         } = frame_info;
+
+        if entered_busywait {
+            self.state = InterpreterState::BusyWaiting;
+        }
+
         if let Some(buzzer) = buzzer_change_state {
             self.buzzer_active = buzzer;
         }
@@ -49,7 +76,14 @@ impl<T: ControlledToInterpreter> Interpreter<T> {
             inner: from,
             buzzer_active: false,
             step_frequency: 8,
-            internal_speed: None,
+            internal_frequency_scale: None,
+            sixty_hertz_progress: Duration::ZERO,
+            state: InterpreterState::Normal,
         }
+    }
+
+    pub fn with_frequency(mut self, frequency: u32) -> Self {
+        self.step_frequency = frequency;
+        self
     }
 }

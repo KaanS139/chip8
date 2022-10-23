@@ -28,7 +28,7 @@ impl Display {
             {
                 if bit {
                     modified.set();
-                    if self.xor_pixel_at(column, row) {
+                    if self.xor_pixel_at(column % 64, row % 32) {
                         modified.clear();
                     }
                 }
@@ -86,6 +86,7 @@ impl Display {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[must_use]
 pub enum ScreenModification {
     Nothing,
     Sets,

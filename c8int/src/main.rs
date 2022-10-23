@@ -15,19 +15,15 @@ fn main() {
     )
     .expect("could not set up logging!");
 
-    let int = c8int::Chip8Interpreter::new_from_file("roms/Tetris.ch8");
+    let int = c8int::Chip8Interpreter::new_from_file("roms/Heart Monitor.ch8");
+    // let int = c8int::Chip8Interpreter::new_assembled_save("test_rng.ch8", |asm| {
+    //     asm
+    //         .rng(GeneralRegister::V0, 0xFF)
+    //         .label_str("end")
+    //         .jump("end")
+    // });
+    //
+    // int.memory().save(std::fs::File::create("roms/test_rng.mem").unwrap());
 
-    chip8_base::run(int.to_interpreter());
+    chip8_base::run(int.to_interpreter().with_frequency(1024));
 }
-
-// fn test() {
-//     let rom: c8common::asm::ROM = c8asm_proc::c8asm!(
-//         start: nop
-//             nop,
-//         begin_loop:
-//             cls,
-//             nop,
-//             jp @begin_loop
-//     );
-//     rom.save("roms/test_proc.ch8");
-// }

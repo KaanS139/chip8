@@ -1,3 +1,4 @@
+use crate::Datum;
 use std::ops::{BitAnd, BitOrAssign};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -31,6 +32,18 @@ impl Keys {
             }
         }
         s
+    }
+
+    pub fn from_number(value: u8) -> Self {
+        nth_shift(value as usize)
+    }
+
+    pub fn from_datum(datum: Datum) -> Self {
+        Self::from_number(datum.0)
+    }
+
+    pub fn pressed(&self) -> bool {
+        self.0 != 0
     }
 }
 

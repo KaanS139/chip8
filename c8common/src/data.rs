@@ -8,6 +8,19 @@ impl Datum {
     pub fn as_nibbles(&self) -> [Nibble; 2] {
         [Nibble(self.0 >> 4), Nibble(self.0 & 0b1111)]
     }
+
+    pub fn towards_zero(&mut self) -> bool {
+        if self.0 > 0 {
+            self.0 -= 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn inner(self) -> u8 {
+        self.0
+    }
 }
 
 impl Nibble {
@@ -25,6 +38,30 @@ impl BitOr<u8> for Datum {
 
     fn bitor(self, rhs: u8) -> Self::Output {
         Self(self.0 | rhs)
+    }
+}
+
+impl BitOr<Datum> for Datum {
+    type Output = Self;
+
+    fn bitor(self, rhs: Datum) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl BitAnd<Datum> for Datum {
+    type Output = Self;
+
+    fn bitand(self, rhs: Datum) -> Self::Output {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl BitXor<Datum> for Datum {
+    type Output = Self;
+
+    fn bitxor(self, rhs: Datum) -> Self::Output {
+        Self(self.0 ^ rhs.0)
     }
 }
 
@@ -50,7 +87,7 @@ macro_rules! impl_fmt {
 }
 
 pub(crate) use impl_fmt;
-use std::ops::{BitOr, BitOrAssign};
+use std::ops::{BitAnd, BitOr, BitOrAssign, BitXor};
 
 impl_fmt!(
     (Datum, u8),

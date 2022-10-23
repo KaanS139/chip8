@@ -10,6 +10,19 @@ pub trait ControlledInterpreter {
 
     fn display(&self) -> &Display;
 
+    fn delay_timer_register(&self) -> &Datum;
+    fn delay_timer_register_mut(&mut self) -> &mut Datum;
+
+    fn sound_timer_register(&self) -> &Datum;
+    fn sound_timer_register_mut(&mut self) -> &mut Datum;
+
+    fn timer_tick_60hz(&mut self) -> TimerTick {
+        let mut tick = TimerTick::new();
+        tick.delay(self.delay_timer_register_mut().towards_zero());
+        tick.sound(self.sound_timer_register_mut().towards_zero());
+        tick
+    }
+
     fn register(&self, register: GeneralRegister) -> &Datum;
     fn register_mut(&mut self, register: GeneralRegister) -> &mut Datum;
 
@@ -19,6 +32,13 @@ pub trait ControlledInterpreter {
 
     fn get_register(&self, register: GeneralRegister) -> Datum {
         *self.register(register)
+    }
+
+    fn get_i(&self) -> u16;
+    fn get_i_mut(&mut self) -> &mut u16;
+
+    fn set_i(&mut self, to: u16) {
+        *self.get_i_mut() = to;
     }
 
     fn stack(&self) -> &Vec<Address>;
@@ -51,6 +71,7 @@ pub trait ControlledInterpreter {
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[allow(missing_copy_implementations)]
 pub struct FrameInfo {
+    entered_busywait: bool,
     screen_modified: bool,
     buzzer_change_state: Option<bool>,
 }
@@ -58,6 +79,7 @@ pub struct FrameInfo {
 impl FrameInfo {
     fn empty() -> Self {
         Self {
+            entered_busywait: false,
             screen_modified: false,
             buzzer_change_state: None,
         }
@@ -69,6 +91,10 @@ impl FrameInfo {
 
     fn set_buzzer(&mut self, to: bool) {
         self.buzzer_change_state = Some(to);
+    }
+
+    pub fn busywait(&mut self) {
+        self.entered_busywait = true;
     }
 }
 
@@ -85,4 +111,44 @@ impl<T: ControlledInterpreter> ControlledToInterpreter for T {
     {
         Interpreter::new(self)
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct TimerTick {
+    delay: bool,
+    sound: bool,
+}
+
+impl TimerTick {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Self {
+            delay: false,
+            sound: false,
+        }
+    }
+
+    pub fn delay(&mut self, decremented: bool) {
+        if decremented {
+            self.delay = true;
+        }
+    }
+
+    pub fn sound(&mut self, decremented: bool) {
+        if decremented {
+            self.sound = true;
+        }
+    }
+
+    pub fn buzzer_active(&self) -> bool {
+        self.sound
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[allow(missing_copy_implementations)]
+pub enum InterpreterState {
+    Normal,
+    Held,
+    BusyWaiting,
 }

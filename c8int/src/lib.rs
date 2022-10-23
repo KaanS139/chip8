@@ -1,3 +1,6 @@
+#![deny(unused_must_use, missing_debug_implementations)]
+#![warn(missing_copy_implementations)]
+
 mod interpreter;
 pub use interpreter::Chip8Interpreter;
 

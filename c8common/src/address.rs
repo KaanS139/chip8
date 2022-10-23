@@ -7,6 +7,7 @@ impl Address {
     pub const ZERO: Self = Self(0);
 
     pub const PROGRAM_START: Self = Self(0x200);
+    pub const PROGRAM_START_INDEX: usize = Self::PROGRAM_START.0 as usize;
 
     pub fn new(at: u16) -> Self {
         assert!(at <= Self::MAX.0);

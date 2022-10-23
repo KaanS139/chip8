@@ -30,20 +30,26 @@ impl ROM {
             info!(
                 "Padding bytes from {} to {}",
                 bytes.len(),
-                NUMBER_OF_ADDRESSES - 0x200
+                NUMBER_OF_ADDRESSES - Address::PROGRAM_START_INDEX
             );
-            bytes.extend(std::iter::repeat(0).take(NUMBER_OF_ADDRESSES - 0x200 - bytes.len()))
+            bytes.extend(
+                std::iter::repeat(0)
+                    .take(NUMBER_OF_ADDRESSES - Address::PROGRAM_START_INDEX - bytes.len()),
+            )
         }
         match bytes.len().cmp(&(NUMBER_OF_ADDRESSES - 0x200)) {
             Ordering::Less => panic!("Should not be possible!"),
             Ordering::Equal => {
                 let bytes = bytes
-                    .try_conv::<[u8; NUMBER_OF_ADDRESSES - 0x200]>()
+                    .try_conv::<[u8; NUMBER_OF_ADDRESSES - Address::PROGRAM_START_INDEX]>()
                     .unwrap();
                 let data = bytes.map(Datum);
                 Ok(Self(data))
             }
-            Ordering::Greater => Err(LoadError::TooBig { size: bytes.len() }),
+            Ordering::Greater => Err(LoadError::WrongSize {
+                size: bytes.len(),
+                expected: NUMBER_OF_ADDRESSES - Address::PROGRAM_START_INDEX,
+            }),
         }
     }
 
@@ -63,7 +69,7 @@ impl ROM {
 
 #[derive(Debug, Copy, Clone)]
 pub enum LoadError {
-    TooBig { size: usize },
+    WrongSize { size: usize, expected: usize },
 }
 
 #[derive(Debug)]
@@ -129,9 +135,17 @@ impl Assembler {
         self
     }
 
+    pub fn raw_instruction(&mut self, raw: u16) -> &mut Self {
+        #[allow(deprecated)]
+        self.instruction(AsmInstruction::RAW(raw))
+    }
+
     pub fn label(&mut self, name: String) -> &mut Self {
         let name_2 = name.clone();
-        if let Some(old) = self.labels.insert(name, self.counter) {
+        if let Some(old) = self.labels.insert(
+            name,
+            Address::new(self.counter.as_u16() + Address::PROGRAM_START.as_u16() + 1),
+        ) {
             error!(
                 "Label {} has been overwritten! (from 0x{:X} to 0x{:X})",
                 name_2, old, self.counter
@@ -154,6 +168,10 @@ impl Assembler {
 
     pub fn jump(&mut self, to: impl Into<JumpAddress>) -> &mut Self {
         self.instruction(AsmInstruction::JP(to.into()))
+    }
+
+    pub fn rng(&mut self, reg: VX, byte: u8) -> &mut Self {
+        self.instruction(AsmInstruction::RNG(reg, byte))
     }
 }
 
@@ -194,8 +212,19 @@ impl From<Address> for JumpAddress {
     }
 }
 
+impl From<u16> for JumpAddress {
+    fn from(addr: u16) -> Self {
+        Address::new(addr).into()
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum AsmInstruction {
+    #[deprecated]
+    /// Used for adding a raw instruction to the assembler
+    /// If an alternative exists, use that instead.
+    RAW(u16),
+
     NOP,
     #[deprecated]
     /// Jump to a machine code routine at nnn.
@@ -213,21 +242,26 @@ pub enum AsmInstruction {
     /// For Source = Byte : The interpreter puts the value kk into register Vx.
     /// For Source = Register : Stores the value of register Vy in register Vx.
     LD(VX, Source),
+
+    /// Generate a random byte using u8 as a mask, and store it in _Vx_
+    RNG(VX, u8),
 }
 
 impl AsmInstruction {
     fn to_data(&self, labels: &HashMap<String, Address>) -> RawInstruction {
         match self {
-            AsmInstruction::NOP => 0x0000.into(),
+            #[allow(deprecated)]
+            Self::RAW(raw) => raw.into(),
+            Self::NOP => 0x0000.into(),
             #[allow(deprecated, clippy::identity_op)]
-            AsmInstruction::SYS(addr) => {
+            Self::SYS(addr) => {
                 let mut raw = RawInstruction::from_raw_bytes(addr.to_bytes());
                 raw.highest().bitor_assign(0x00);
                 raw
             }
-            AsmInstruction::CLS => 0x00E0.into(),
-            AsmInstruction::RET => 0x00EE.into(),
-            AsmInstruction::JP(to) => {
+            Self::CLS => 0x00E0.into(),
+            Self::RET => 0x00EE.into(),
+            Self::JP(to) => {
                 if let JumpAddress::Relative(rel_addr) = to {
                     let mut raw = RawInstruction::from_raw_bytes(rel_addr.to_bytes());
                     raw.highest().bitor_assign(0xB0);
@@ -246,8 +280,13 @@ impl AsmInstruction {
                     raw
                 }
             }
-            AsmInstruction::LD(_, _) => {
+            Self::LD(_, _) => {
                 todo!()
+            }
+            Self::RNG(reg, byte) => {
+                let mut raw = RawInstruction::from_raw_bytes([*reg as usize as u8, *byte]);
+                raw.highest().bitor_assign(0xC0);
+                raw
             }
         }
     }

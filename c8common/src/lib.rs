@@ -49,24 +49,32 @@ impl GeneralRegister {
     }
 
     pub fn from_nibble(nibble: Nibble) -> Self {
-        match nibble.as_half_byte() {
-            0 => GeneralRegister::V0,
-            1 => GeneralRegister::V1,
-            2 => GeneralRegister::V2,
-            3 => GeneralRegister::V3,
-            4 => GeneralRegister::V4,
-            5 => GeneralRegister::V5,
-            6 => GeneralRegister::V6,
-            7 => GeneralRegister::V7,
-            8 => GeneralRegister::V8,
-            9 => GeneralRegister::V9,
-            10 => GeneralRegister::VA,
-            11 => GeneralRegister::VB,
-            12 => GeneralRegister::VC,
-            13 => GeneralRegister::VD,
-            14 => GeneralRegister::VE,
-            15 => GeneralRegister::VF,
-            _ => unreachable!(),
+        Self::from_byte(nibble.as_half_byte())
+    }
+
+    pub fn from_byte(index: u8) -> Self {
+        match index {
+            0 => Self::V0,
+            1 => Self::V1,
+            2 => Self::V2,
+            3 => Self::V3,
+            4 => Self::V4,
+            5 => Self::V5,
+            6 => Self::V6,
+            7 => Self::V7,
+            8 => Self::V8,
+            9 => Self::V9,
+            10 => Self::VA,
+            11 => Self::VB,
+            12 => Self::VC,
+            13 => Self::VD,
+            14 => Self::VE,
+            15 => Self::VF,
+            index => panic!("Invalid index for register! {}", index),
         }
+    }
+
+    pub fn until_including(self) -> impl Iterator<Item = Self> {
+        (0..=(self as usize as u8)).map(Self::from_byte)
     }
 }
