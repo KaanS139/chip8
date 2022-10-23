@@ -3,7 +3,8 @@
 members = [
     "c8common",
     "c8asm-proc",
-    "c8int"
+    "c8int",
+    "chip8-base",
 ]
 
 resolver = "2"
@@ -12,3 +13,6 @@ resolver = "2"
 chip8_base = "0.2.0"
 log = "0.4.17"
 tap = "1.0.1"
+
+[patch.crates-io]
+chip8_base = { path = "chip8-base" }
