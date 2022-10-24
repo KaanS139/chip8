@@ -176,7 +176,17 @@ impl Chip8Interpreter {
                     info!("Not skipping next instruction! (EQ)");
                 }
             }
-
+            Instruction::SkipRegistersEqual(r1, r2) => {
+                let c1 = self.get_register(r1);
+                let c2 = self.get_register(r2);
+                if c1 == c2 {
+                    info!("Skipping next instruction! (EQ)");
+                    self.increment_program_counter();
+                    self.increment_program_counter();
+                } else {
+                    info!("Not skipping next instruction! (NE)");
+                }
+            }
             Instruction::LoadRegByte(reg, byte) => {
                 info!("Load immediate {:02X} into {:?}", byte, reg);
                 self.set_register(reg, Datum(byte));
@@ -215,32 +225,59 @@ impl Chip8Interpreter {
                 // If Vx > Vy, then VF is set to 1, otherwise 0. Then Vy is subtracted from Vx, and the results stored in Vx.
                 let (x, y) = (self.get_register(rx), self.get_register(ry));
                 self.set_vf(Datum(if x > y { 1 } else { 0 }));
-                self.set_register(rx, self.get_register(rx) | self.get_register(ry));
+                self.set_register(rx, Datum(x.0.overflowing_sub(y.0).0));
             }
             Instruction::Shr(rx) => {
                 info!("SHR {:?}", rx);
                 let number = self.get_register(rx).0;
                 let right = number & 0b1;
-                self.set_vf(Datum(if right != 0 {1} else {0}));
+                self.set_vf(Datum(if right != 0 { 1 } else { 0 }));
                 self.set_register(rx, Datum(number >> 1));
             }
             Instruction::SubN { x: rx, y: ry } => {
                 info!("SUBN {:?}, {:?}", rx, ry);
-                todo!();
+                // If Vy > Vx, then VF is set to 1, otherwise 0. Then Vx is subtracted from Vy, and the results stored in Vx.
+                let (x, y) = (self.get_register(rx), self.get_register(ry));
+                self.set_vf(Datum(if y > x { 1 } else { 0 }));
+                self.set_register(rx, Datum(y.0.overflowing_sub(x.0).0));
             }
             Instruction::Shl(rx) => {
                 info!("SHL {:?}", rx);
                 let number = self.get_register(rx).0;
                 let right = number & 0b10000000;
-                self.set_vf(Datum(if right != 0 {1} else {0}));
+                self.set_vf(Datum(if right != 0 { 1 } else { 0 }));
                 self.set_register(rx, Datum(number << 1));
             }
-
+            Instruction::SkipRegistersNotEqual(r1, r2) => {
+                let c1 = self.get_register(r1);
+                let c2 = self.get_register(r2);
+                if c1 != c2 {
+                    info!("Skipping next instruction! (NE)");
+                    self.increment_program_counter();
+                    self.increment_program_counter();
+                } else {
+                    info!("Not skipping next instruction! (EQ)");
+                }
+            }
             Instruction::LoadImmediate(value) => {
                 info!("Load immediate {:03X} into I", value);
                 self.register_i = value.as_u16();
             }
-
+            Instruction::JumpRelative(rel_addr) => {
+                info!("Relative jump to V0 + {:02X}", rel_addr);
+                let v0 = self.get_register(GeneralRegister::V0);
+                let target = v0.0 as u16 + rel_addr.as_u16();
+                if target & 0xF000 != 0 {
+                    error!("Invalid jump address! 0x{:X} is out of bounds!", target);
+                    panic!()
+                }
+                if target + 2 == self.program_counter.as_u16() {
+                    warn!("Entering busywait loop, stopping.");
+                    info!("Loop at 0x{:02X}", self.program_counter);
+                    frame.busywait();
+                }
+                self.program_counter = Address::new(target);
+            }
             Instruction::Random(reg, byte) => {
                 let random = self.rng.gen::<u8>();
                 let data = random & byte;
@@ -272,7 +309,6 @@ impl Chip8Interpreter {
                 }));
                 frame.modify_screen()
             }
-
             Instruction::SkipPressed(reg) => {
                 let data = self.get_register(reg);
                 let key = Keys::from_datum(data);
@@ -295,13 +331,15 @@ impl Chip8Interpreter {
                     info!("Not skipping next instruction! ({:?} pressed)", key);
                 }
             }
-
             Instruction::GetDelayTimer(reg) => {
                 info!("Getting delay timer into {:?}", reg);
                 let num = self.delay_timer;
                 self.set_register(reg, num);
             }
-
+            Instruction::WaitForKey(reg) => {
+                info!("Waiting to store next keypress in {:?}", reg);
+                frame.wait_for_key_on(reg);
+            }
             Instruction::SetDelayTimer(reg) => {
                 info!("Setting delay timer to {:?}", reg);
                 let num = self.get_register(reg);
@@ -324,7 +362,7 @@ impl Chip8Interpreter {
                 info!("Get sprite location for {:?}", reg);
                 let num = self.register(reg).0;
                 assert!(num < 16);
-                let addr = FONT_START_ADDR as u16 + num as u16;
+                let addr = FONT_START_ADDR as u16 + (num * 5) as u16;
                 self.set_i(addr)
             }
             Instruction::BCD(reg) => {

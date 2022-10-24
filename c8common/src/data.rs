@@ -5,8 +5,11 @@ pub struct Datum(pub u8);
 pub struct Nibble(u8);
 
 impl Datum {
-    pub fn as_nibbles(&self) -> [Nibble; 2] {
-        [Nibble(self.0 >> 4), Nibble(self.0 & 0b1111)]
+    pub fn as_nibbles(self) -> [Nibble; 2] {
+        [
+            Nibble::new_from_half_byte(self.0 >> 4),
+            Nibble::new_from_half_byte(self.0 & 0b1111),
+        ]
     }
 
     pub fn towards_zero(&mut self) -> bool {
@@ -24,6 +27,13 @@ impl Datum {
 }
 
 impl Nibble {
+    pub fn new_from_half_byte(byte: u8) -> Self {
+        if byte & 0xF0 != 0 {
+            panic!("Invalid value for nibble {}", byte);
+        }
+        Self(byte)
+    }
+
     pub fn as_half_byte(&self) -> u8 {
         self.0
     }

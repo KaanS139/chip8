@@ -45,6 +45,15 @@ impl Keys {
     pub fn pressed(&self) -> bool {
         self.0 != 0
     }
+
+    pub fn one_key(&self) -> Option<Datum> {
+        for i in 0..16 {
+            if *self == nth_shift(i) {
+                return Some(Datum(i as u8));
+            }
+        }
+        None
+    }
 }
 
 impl BitOrAssign for Keys {

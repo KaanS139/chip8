@@ -74,6 +74,7 @@ pub struct FrameInfo {
     entered_busywait: bool,
     screen_modified: bool,
     buzzer_change_state: Option<bool>,
+    wait_for_key: Option<GeneralRegister>,
 }
 
 impl FrameInfo {
@@ -82,6 +83,7 @@ impl FrameInfo {
             entered_busywait: false,
             screen_modified: false,
             buzzer_change_state: None,
+            wait_for_key: None,
         }
     }
 
@@ -95,6 +97,10 @@ impl FrameInfo {
 
     pub fn busywait(&mut self) {
         self.entered_busywait = true;
+    }
+
+    pub fn wait_for_key_on(&mut self, register: GeneralRegister) {
+        self.wait_for_key = Some(register);
     }
 }
 
@@ -150,5 +156,6 @@ impl TimerTick {
 pub enum InterpreterState {
     Normal,
     Held,
+    WaitForKey(GeneralRegister),
     BusyWaiting,
 }

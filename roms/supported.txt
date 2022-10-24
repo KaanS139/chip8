@@ -1,7 +1,18 @@
+Fully working:
+
 IBM.ch8
 UWCS.ch8
-test_rng.ch8
 maze.ch8
-Super Octagon.ch8
+test_random.ch8
+test_delay_timer.ch8
+corax_test_rom.ch8
 Heart Monitor.ch8
 Morse Code.ch8
+Spock Paper Scissors.ch8
+Space Invaders.ch8
+Tetris.ch8
+
+Not fully working:
+
+Super Octagon.ch8 (controls are non-obvious, no obstacles appear)
+Super Square.ch8  (also seems broken on other emulators)

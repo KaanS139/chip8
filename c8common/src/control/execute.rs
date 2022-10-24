@@ -1,7 +1,7 @@
 use crate::control::{ControlledInterpreter, ControlledToInterpreter, FrameInfo, InterpreterState};
 use crate::key::Keys;
 use chip8_base::{Display, Keys as RawKeys};
-use log::{debug, trace};
+use log::{debug, info, trace, warn};
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -16,10 +16,26 @@ pub struct Interpreter<I: ControlledInterpreter> {
 
 impl<T: ControlledInterpreter> chip8_base::Interpreter for Interpreter<T> {
     fn step(&mut self, keys: &RawKeys) -> Option<Display> {
+        let keys = Keys::from_raw(keys);
         match self.state {
             InterpreterState::Normal => {}
             InterpreterState::Held => {
                 todo!("Check for resume")
+            }
+            InterpreterState::WaitForKey(reg) => {
+                if keys.pressed() {
+                    let parsed_keys = keys.one_key();
+                    if let Some(key) = parsed_keys {
+                        info!("Key pressed, continuing!");
+                        self.state = InterpreterState::Normal;
+                        self.inner.set_register(reg, key);
+                    } else {
+                        warn!("Multiple keys pressed at once, not continuing!");
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
             }
             InterpreterState::BusyWaiting => return None,
         }
@@ -38,14 +54,20 @@ impl<T: ControlledInterpreter> chip8_base::Interpreter for Interpreter<T> {
                 frame_info.set_buzzer(false);
             }
         }
-        self.inner.step(Keys::from_raw(keys), &mut frame_info);
+        self.inner.step(keys, &mut frame_info);
         trace!("Step complete!");
 
         let FrameInfo {
             screen_modified,
             buzzer_change_state,
             entered_busywait,
+            wait_for_key,
         } = frame_info;
+
+        if let Some(reg) = wait_for_key {
+            self.state = InterpreterState::WaitForKey(reg);
+            info!("Waiting to store next keypress in {:?}", reg);
+        }
 
         if entered_busywait {
             self.state = InterpreterState::BusyWaiting;

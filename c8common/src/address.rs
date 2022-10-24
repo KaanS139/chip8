@@ -30,6 +30,12 @@ impl Address {
         [(self.0 >> 8) as u8, (self.0 & 0xFF) as u8]
     }
 
+    pub fn to_nibbles(self) -> [Nibble; 3] {
+        let [[h0, h1], [h2, h3]] = self.to_bytes().map(Datum).map(Datum::as_nibbles);
+        assert_eq!(h0.as_half_byte(), 0);
+        [h1, h2, h3]
+    }
+
     pub fn as_u16(self) -> u16 {
         self.0
     }
@@ -86,6 +92,7 @@ impl BitAnd<u16> for &Address {
 }
 
 use crate::data::impl_fmt;
+use crate::{Datum, Nibble};
 use std::cmp::Ordering;
 use std::ops::{BitAnd, Shr};
 impl_fmt! {

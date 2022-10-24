@@ -1,8 +1,8 @@
 #![deny(missing_debug_implementations, unused_must_use)]
 #![warn(missing_copy_implementations)]
 
-use clap::Parser;
 use c8common::control::ControlledToInterpreter;
+use clap::Parser;
 use simplelog::{ColorChoice, ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
 use std::str::FromStr;
 
@@ -18,7 +18,12 @@ struct Args {
 }
 
 fn main() {
-    let Args { rom_path, frequency, frequency_scale: simulated_frequency, log_level } = Args::parse();
+    let Args {
+        rom_path,
+        frequency,
+        frequency_scale: simulated_frequency,
+        log_level,
+    } = Args::parse();
 
     TermLogger::init(
         log_level,
@@ -29,7 +34,8 @@ fn main() {
             .build(),
         TerminalMode::Stderr,
         ColorChoice::Always,
-    ).expect("could not set up logging!");
+    )
+    .expect("could not set up logging!");
 
     let int = c8int::Chip8Interpreter::new_from_file(rom_path);
     // let int = c8int::Chip8Interpreter::new_assembled_save("test_rng.ch8", |asm| {
@@ -41,5 +47,9 @@ fn main() {
     //
     // int.memory().save(std::fs::File::create("roms/test_rng.mem").unwrap());
 
-    chip8_base::run(int.to_interpreter().with_frequency(frequency).with_simulated_frequency(simulated_frequency));
+    chip8_base::run(
+        int.to_interpreter()
+            .with_frequency(frequency)
+            .with_simulated_frequency(simulated_frequency),
+    );
 }

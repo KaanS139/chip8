@@ -52,6 +52,10 @@ impl GeneralRegister {
         Self::from_byte(nibble.as_half_byte())
     }
 
+    pub fn to_nibble(self) -> Nibble {
+        Nibble::new_from_half_byte(self as usize as u8)
+    }
+
     pub fn from_byte(index: u8) -> Self {
         match index {
             0 => Self::V0,
