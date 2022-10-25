@@ -15,6 +15,7 @@ simplelog = "0.12.0"
 tap.workspace = true
 rand = "0.8.5"
 clap = { version = "4.0.18", features = ["derive"] }
+c8hooks = { path = "../c8hooks" }
 
 [dependencies.c8common]
 path = "../c8common"

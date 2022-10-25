@@ -1,7 +1,9 @@
 use crate::control::{ControlledInterpreter, ControlledToInterpreter, FrameInfo, InterpreterState};
+use crate::hooks::{FurtherHooks, InterpreterHook, InterpreterHookBundle};
 use crate::key::Keys;
 use chip8_base::{Display, Keys as RawKeys};
 use log::{debug, info, trace, warn};
+use std::marker::PhantomData;
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -12,11 +14,13 @@ pub struct Interpreter<I: ControlledInterpreter> {
     internal_frequency_scale: Option<f32>,
     sixty_hertz_progress: Duration,
     state: InterpreterState,
+    hooks: Vec<Box<dyn InterpreterHook<I>>>,
 }
 
 impl<T: ControlledInterpreter> chip8_base::Interpreter for Interpreter<T> {
     fn step(&mut self, keys: &RawKeys) -> Option<Display> {
         let keys = Keys::from_raw(keys);
+        let keys = self.map_keys(keys);
         match self.state {
             InterpreterState::Normal => {}
             InterpreterState::Held => {
@@ -101,6 +105,30 @@ impl<T: ControlledToInterpreter> Interpreter<T> {
             internal_frequency_scale: None,
             sixty_hertz_progress: Duration::ZERO,
             state: InterpreterState::Normal,
+            hooks: vec![],
+        }
+    }
+}
+
+impl<T: ControlledToInterpreter> Interpreter<T> {
+    fn new_with_hooks<H: InterpreterHookBundle<T>>(from: T, hooks: H) -> Self {
+        let Interpreter {
+            inner,
+            buzzer_active,
+            step_frequency,
+            internal_frequency_scale,
+            sixty_hertz_progress,
+            state,
+            ..
+        } = Interpreter::new(from);
+        Self {
+            inner,
+            buzzer_active,
+            step_frequency,
+            internal_frequency_scale,
+            sixty_hertz_progress,
+            state,
+            hooks: hooks.to_vec(),
         }
     }
 
@@ -112,5 +140,68 @@ impl<T: ControlledToInterpreter> Interpreter<T> {
     pub fn with_simulated_frequency(mut self, frequency_scale: Option<f32>) -> Self {
         self.internal_frequency_scale = frequency_scale;
         self
+    }
+}
+
+impl<T: ControlledToInterpreter> Interpreter<T> {
+    fn map_keys(&mut self, mut keys: Keys) -> Keys {
+        for hook in &mut self.hooks {
+            let ret = hook.get_keys(&self.inner, keys);
+            if let Some(new_keys) = ret.item {
+                keys = new_keys;
+            }
+            if ret.behaviour == FurtherHooks::Stop {
+                break;
+            }
+        }
+        keys
+    }
+}
+
+impl<T: ControlledInterpreter> Interpreter<T> {
+    pub fn builder() -> InterpreterBuilder<T, ()> {
+        InterpreterBuilder::new()
+    }
+}
+
+#[derive(Debug)]
+pub struct InterpreterBuilder<T, H> {
+    __phantom_interpreter: PhantomData<T>,
+    hooks: H,
+}
+
+impl<T: ControlledInterpreter, H: InterpreterHookBundle<T>> InterpreterBuilder<T, H> {
+    pub fn extend_with<N: InterpreterHook<T>>(
+        self,
+        with: N,
+    ) -> InterpreterBuilder<T, H::Extended<N>> {
+        let Self { hooks, .. } = self;
+        let hooks = hooks.extend_with(with);
+        InterpreterBuilder {
+            hooks,
+            __phantom_interpreter: Default::default(),
+        }
+    }
+
+    pub fn extend<N: InterpreterHook<T> + Default>(self) -> InterpreterBuilder<T, H::Extended<N>> {
+        let Self { hooks, .. } = self;
+        let hooks = hooks.extend_with(N::default());
+        InterpreterBuilder {
+            hooks,
+            __phantom_interpreter: Default::default(),
+        }
+    }
+
+    pub fn build(self, with: T) -> Interpreter<T> {
+        Interpreter::new_with_hooks(with, self.hooks)
+    }
+}
+
+impl<T: ControlledInterpreter> InterpreterBuilder<T, ()> {
+    fn new() -> Self {
+        Self {
+            hooks: (),
+            __phantom_interpreter: Default::default(),
+        }
     }
 }

@@ -4,6 +4,7 @@ use std::ops::{BitAnd, BitOrAssign};
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Keys(u16);
 
+#[allow(dead_code)]
 impl Keys {
     const KEY_0: Self = nth_shift(0);
     const KEY_1: Self = nth_shift(1);

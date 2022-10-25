@@ -1,6 +1,7 @@
 #![deny(missing_debug_implementations, unused_must_use)]
 #![warn(missing_copy_implementations)]
 
+use c8common::control::execute::Interpreter;
 use c8common::control::ControlledToInterpreter;
 use clap::Parser;
 use simplelog::{ColorChoice, ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
@@ -31,6 +32,7 @@ fn main() {
             .add_filter_allow_str("c8common")
             .add_filter_allow_str("c8int")
             .add_filter_allow_str("chip8-base")
+            .add_filter_allow_str("c8hooks")
             .build(),
         TerminalMode::Stderr,
         ColorChoice::Always,
@@ -47,8 +49,15 @@ fn main() {
     //
     // int.memory().save(std::fs::File::create("roms/test_rng.mem").unwrap());
 
+    // chip8_base::run(
+    //     int.to_interpreter()
+    //         .with_frequency(frequency)
+    //         .with_simulated_frequency(simulated_frequency),
+    // );
     chip8_base::run(
-        int.to_interpreter()
+        Interpreter::builder()
+            .extend_with(c8hooks::execution_dumper::ExecutionDumper::dump_to("dump.log").unwrap())
+            .build(int)
             .with_frequency(frequency)
             .with_simulated_frequency(simulated_frequency),
     );

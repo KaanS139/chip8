@@ -5,6 +5,7 @@ members = [
     "c8asm-proc",
     "c8int",
     "chip8-base",
+    "c8hooks",
 ]
 
 resolver = "2"

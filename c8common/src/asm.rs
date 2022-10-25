@@ -22,7 +22,7 @@ impl ROM {
 
     pub fn save(&self, path: impl AsRef<std::path::Path>) {
         let buf = self.0.map(|datum| datum.0);
-        std::fs::write(path, &buf).expect("failed to write to file!")
+        std::fs::write(path, buf).expect("failed to write to file!")
     }
 
     pub fn from_bytes(mut bytes: Vec<u8>) -> Result<Self, LoadError> {

@@ -21,6 +21,7 @@ pub mod display;
 pub use display::Display;
 
 pub mod control;
+pub mod hooks;
 pub mod key;
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]

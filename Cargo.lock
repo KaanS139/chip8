@@ -213,10 +213,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "c8hooks"
+version = "0.1.0"
+dependencies = [
+ "c8common",
+ "log",
+]
+
+[[package]]
 name = "c8int"
 version = "0.1.0"
 dependencies = [
  "c8common",
+ "c8hooks",
  "chip8_base",
  "clap",
  "egui",

@@ -224,28 +224,28 @@ impl Chip8Interpreter {
                 info!("SUB {:?}, {:?}", rx, ry);
                 // If Vx > Vy, then VF is set to 1, otherwise 0. Then Vy is subtracted from Vx, and the results stored in Vx.
                 let (x, y) = (self.get_register(rx), self.get_register(ry));
-                self.set_vf(Datum(if x > y { 1 } else { 0 }));
+                self.set_vf(Datum(u8::from(x > y)));
                 self.set_register(rx, Datum(x.0.overflowing_sub(y.0).0));
             }
             Instruction::Shr(rx) => {
                 info!("SHR {:?}", rx);
                 let number = self.get_register(rx).0;
                 let right = number & 0b1;
-                self.set_vf(Datum(if right != 0 { 1 } else { 0 }));
+                self.set_vf(Datum(u8::from(right != 0)));
                 self.set_register(rx, Datum(number >> 1));
             }
             Instruction::SubN { x: rx, y: ry } => {
                 info!("SUBN {:?}, {:?}", rx, ry);
                 // If Vy > Vx, then VF is set to 1, otherwise 0. Then Vx is subtracted from Vy, and the results stored in Vx.
                 let (x, y) = (self.get_register(rx), self.get_register(ry));
-                self.set_vf(Datum(if y > x { 1 } else { 0 }));
+                self.set_vf(Datum(u8::from(y > x)));
                 self.set_register(rx, Datum(y.0.overflowing_sub(x.0).0));
             }
             Instruction::Shl(rx) => {
                 info!("SHL {:?}", rx);
                 let number = self.get_register(rx).0;
                 let right = number & 0b10000000;
-                self.set_vf(Datum(if right != 0 { 1 } else { 0 }));
+                self.set_vf(Datum(u8::from(right != 0)));
                 self.set_register(rx, Datum(number << 1));
             }
             Instruction::SkipRegistersNotEqual(r1, r2) => {
@@ -302,11 +302,7 @@ impl Chip8Interpreter {
                     y_coord,
                     self.memory.substring(addr, number_of_bytes),
                 );
-                self.set_vf(Datum(if m == ScreenModification::Clears {
-                    1
-                } else {
-                    0
-                }));
+                self.set_vf(Datum(u8::from(m == ScreenModification::Clears)));
                 frame.modify_screen()
             }
             Instruction::SkipPressed(reg) => {
