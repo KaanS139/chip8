@@ -9,6 +9,7 @@ edition = "2021"
 log.workspace = true
 chip8_base.workspace = true
 tap.workspace = true
+getset = "0.1.2"
 
 [dependencies.c8asm-proc]
 path = "../c8asm-proc"

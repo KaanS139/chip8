@@ -1,4 +1,4 @@
-#![deny(missing_debug_implementations)]
+#![deny(missing_debug_implementations, unused_must_use)]
 #![warn(missing_copy_implementations)]
 
 mod address;

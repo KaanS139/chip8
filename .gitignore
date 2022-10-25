@@ -2,3 +2,4 @@
 /roms/*.ch8
 /roms/*.mem
 .idea
+/output/

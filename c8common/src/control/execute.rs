@@ -2,11 +2,13 @@ use crate::control::{ControlledInterpreter, ControlledToInterpreter, FrameInfo, 
 use crate::hooks::{FurtherHooks, InterpreterHook, InterpreterHookBundle};
 use crate::key::Keys;
 use chip8_base::{Display, Keys as RawKeys};
+use getset::{Getters, MutGetters};
 use log::{debug, info, trace, warn};
 use std::marker::PhantomData;
 use std::time::Duration;
 
-#[derive(Debug)]
+#[derive(Debug, Getters, MutGetters)]
+#[getset(get, get_mut)]
 pub struct Interpreter<I: ControlledInterpreter> {
     inner: I,
     buzzer_active: bool,
@@ -14,13 +16,14 @@ pub struct Interpreter<I: ControlledInterpreter> {
     internal_frequency_scale: Option<f32>,
     sixty_hertz_progress: Duration,
     state: InterpreterState,
+    #[getset(skip)]
     hooks: Vec<Box<dyn InterpreterHook<I>>>,
 }
 
 impl<T: ControlledInterpreter> chip8_base::Interpreter for Interpreter<T> {
     fn step(&mut self, keys: &RawKeys) -> Option<Display> {
-        let keys = Keys::from_raw(keys);
-        let keys = self.map_keys(keys);
+        self.hook_pre_cycle();
+        let keys = self.hook_map_keys(self.state, Keys::from_raw(keys));
         match self.state {
             InterpreterState::Normal => {}
             InterpreterState::Held => {
@@ -46,20 +49,23 @@ impl<T: ControlledInterpreter> chip8_base::Interpreter for Interpreter<T> {
         trace!("Beginning step.");
         let mut frame_info = FrameInfo::empty();
 
+        // TODO: Hook for RTC registers
         let internal_frequency = self.internal_frequency_scale.unwrap_or(1.);
         let more_progress =
             Duration::from_secs_f32(self.speed().as_secs_f32() * internal_frequency);
         self.sixty_hertz_progress += more_progress;
-        if self.sixty_hertz_progress.as_secs_f32() >= 1. / 60. {
-            self.sixty_hertz_progress = Duration::ZERO;
+        while self.sixty_hertz_progress.as_secs_f32() >= 1. / 60. {
+            self.sixty_hertz_progress -= Duration::from_secs_f32(1. / 60.);
             if self.inner.timer_tick_60hz().buzzer_active() {
                 frame_info.set_buzzer(true);
             } else {
                 frame_info.set_buzzer(false);
             }
         }
+        self.hook_before_step(&mut frame_info);
         self.inner.step(keys, &mut frame_info);
         trace!("Step complete!");
+        self.hook_after_step(&mut frame_info);
 
         let FrameInfo {
             screen_modified,
@@ -82,8 +88,10 @@ impl<T: ControlledInterpreter> chip8_base::Interpreter for Interpreter<T> {
         }
         if screen_modified {
             debug!("Screen has been updated.");
+            self.hook_post_cycle();
             return Some(*self.inner.display().raw());
         }
+        self.hook_post_cycle();
         None
     }
 
@@ -107,6 +115,45 @@ impl<T: ControlledToInterpreter> Interpreter<T> {
             state: InterpreterState::Normal,
             hooks: vec![],
         }
+    }
+}
+
+impl<T: ControlledToInterpreter> Interpreter<T> {
+    fn hook_pre_cycle(&mut self) {
+        for hook in &mut self.hooks {
+            hook.pre_cycle(&mut self.state);
+        }
+    }
+
+    fn hook_before_step(&mut self, frame: &mut FrameInfo) {
+        for hook in &mut self.hooks {
+            hook.before_step(&mut self.inner, frame);
+        }
+    }
+
+    fn hook_after_step(&mut self, frame: &mut FrameInfo) {
+        for hook in &mut self.hooks {
+            hook.after_step(&mut self.inner, frame);
+        }
+    }
+
+    fn hook_post_cycle(&mut self) {
+        for hook in &mut self.hooks {
+            hook.post_cycle(&mut self.state);
+        }
+    }
+
+    fn hook_map_keys(&mut self, state: InterpreterState, mut keys: Keys) -> Keys {
+        for hook in &mut self.hooks {
+            let ret = hook.get_keys(state, &self.inner, keys);
+            if let Some(new_keys) = ret.item {
+                keys = new_keys;
+            }
+            if ret.behaviour == FurtherHooks::Stop {
+                break;
+            }
+        }
+        keys
     }
 }
 
@@ -140,21 +187,6 @@ impl<T: ControlledToInterpreter> Interpreter<T> {
     pub fn with_simulated_frequency(mut self, frequency_scale: Option<f32>) -> Self {
         self.internal_frequency_scale = frequency_scale;
         self
-    }
-}
-
-impl<T: ControlledToInterpreter> Interpreter<T> {
-    fn map_keys(&mut self, mut keys: Keys) -> Keys {
-        for hook in &mut self.hooks {
-            let ret = hook.get_keys(&self.inner, keys);
-            if let Some(new_keys) = ret.item {
-                keys = new_keys;
-            }
-            if ret.behaviour == FurtherHooks::Stop {
-                break;
-            }
-        }
-        keys
     }
 }
 

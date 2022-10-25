@@ -5,7 +5,7 @@ use std::ops::{Index, IndexMut};
 use std::path::Path;
 use tap::TryConv;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(missing_copy_implementations)]
 pub struct Memory([Datum; NUMBER_OF_ADDRESSES]);
 
@@ -60,6 +60,14 @@ impl Memory {
         let start = start.as_u16() as usize;
         let end = start + number as usize;
         &self.0[start..end]
+    }
+
+    pub fn all(&self) -> &[Datum] {
+        &self.0[..]
+    }
+
+    pub(crate) fn extract(self) -> [Datum; NUMBER_OF_ADDRESSES] {
+        self.0
     }
 
     pub fn save(&self, mut writer: impl Write) {

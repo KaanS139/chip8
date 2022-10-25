@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 c8common = { path = "../c8common" }
 log.workspace = true
+image = "0.24.4"

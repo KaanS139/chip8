@@ -26,6 +26,12 @@ pub trait ControlledInterpreter {
     fn register(&self, register: GeneralRegister) -> &Datum;
     fn register_mut(&mut self, register: GeneralRegister) -> &mut Datum;
 
+    fn register_bank(&self) -> [&Datum; 16] {
+        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+            .map(GeneralRegister::from_byte)
+            .map(|r| self.register(r))
+    }
+
     fn set_register(&mut self, register: GeneralRegister, datum: Datum) {
         *self.register_mut(register) = datum;
     }
@@ -71,10 +77,10 @@ pub trait ControlledInterpreter {
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[allow(missing_copy_implementations)]
 pub struct FrameInfo {
-    entered_busywait: bool,
-    screen_modified: bool,
-    buzzer_change_state: Option<bool>,
-    wait_for_key: Option<GeneralRegister>,
+    pub(crate) entered_busywait: bool,
+    pub(crate) screen_modified: bool,
+    pub(crate) buzzer_change_state: Option<bool>,
+    pub(crate) wait_for_key: Option<GeneralRegister>,
 }
 
 impl FrameInfo {
@@ -151,8 +157,7 @@ impl TimerTick {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-#[allow(missing_copy_implementations)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum InterpreterState {
     Normal,
     Held,
