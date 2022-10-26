@@ -42,7 +42,7 @@ impl Recorder {
                 self.write_common();
                 write!(
                     self.info_file,
-                    ", \"path\": {}",
+                    ", \"path\": \"{}\"",
                     new_image_path.file_name().unwrap().to_str().unwrap()
                 )
                 .unwrap();
@@ -87,7 +87,7 @@ impl Recorder {
     fn write_common(&mut self) {
         write!(
             self.info_file,
-            "\"frame\": {}, \"step\": {}, ",
+            "\"frame\": {}, \"step\": {}",
             self.frame_number, self.step_number
         )
         .unwrap();
