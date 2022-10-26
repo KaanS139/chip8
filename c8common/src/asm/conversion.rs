@@ -1,9 +1,10 @@
-use super::tokenizing::{Item, Location, SpannedItem};
+use super::tokenizing::{Item, Spanned};
 use crate::asm::{AsmInstruction, JumpAddress};
-use std::cmp::Ordering;
-use std::ops::RangeInclusive;
+use miette::SourceSpan;
+use crate::Address;
+use crate::asm::tokenizing::{Lexical, Punct};
 
-pub fn convert(mut tokens: Vec<SpannedItem>) -> Result<Vec<ExecutionItem>, ConversionError> {
+pub fn convert(mut tokens: Vec<Spanned<Item>>) -> Result<Vec<ExecutionItem>, ConversionError> {
     // `tokens` are front-back ordered
     tokens.reverse();
     Converter::new(tokens).convert()
@@ -11,13 +12,13 @@ pub fn convert(mut tokens: Vec<SpannedItem>) -> Result<Vec<ExecutionItem>, Conve
 
 struct Converter {
     /// `tokens` are back-front ordered
-    tokens: Vec<SpannedItem>,
+    tokens: Vec<Spanned<Item>>,
     output: Vec<ExecutionItem>,
 }
 
 impl Converter {
     /// `tokens` are back-front ordered
-    fn new(tokens: Vec<SpannedItem>) -> Self {
+    fn new(tokens: Vec<Spanned<Item>>) -> Self {
         Self {
             tokens,
             output: vec![],
@@ -33,8 +34,8 @@ impl Converter {
             let first_token = first_token.unwrap();
 
             match first_token.item {
-                Item::Ident(ref ident) => {
-                    if self.peek().map(|it| matches!(it, Item::Colon)) == Some(true) {
+                Item::Lexical(Lexical::Ident(ref ident)) => {
+                    if self.peek().map(|it| matches!(it, Item::Punct(Punct::Colon))) == Some(true) {
                         self.output.push(ExecutionItem::Label(ident.to_owned()));
                         self.pop();
                         continue;
@@ -49,7 +50,7 @@ impl Converter {
         }
     }
 
-    fn get_line(&mut self, first_token: SpannedItem) -> Vec<SpannedItem> {
+    fn get_line(&mut self, first_token: Spanned<Item>) -> Vec<Spanned<Item>> {
         let mut line = vec![first_token];
         'line: loop {
             let next = self.pop();
@@ -57,7 +58,7 @@ impl Converter {
                 break 'line;
             }
             let next = next.unwrap();
-            if next.item == Item::Semicolon {
+            if next.item == Item::Linebreak {
                 break 'line;
             }
             line.push(next);
@@ -66,11 +67,11 @@ impl Converter {
         line
     }
 
-    fn parse_line(&self, mut line: Vec<SpannedItem>) -> Result<AsmInstruction, ConversionError> {
+    fn parse_line(&self, mut line: Vec<Spanned<Item>>) -> Result<AsmInstruction, ConversionError> {
         let total_line_span = Self::get_total_span(&line[..]).unwrap();
 
-        let first: SpannedIdent = line.pop().unwrap().try_into().unwrap();
-        match &first.ident.to_ascii_lowercase()[..] {
+        let first: Spanned<Ident> = line.pop().unwrap().try_into().unwrap();
+        match &first.item.0.to_ascii_lowercase()[..] {
             "nop" => {
                 if line.len() == 1 {
                     Ok(AsmInstruction::NOP)
@@ -93,14 +94,14 @@ impl Converter {
                 if line.len() == 2 {
                     let arg = line.pop().unwrap();
                     match arg.item {
-                        Item::Ident(s) => Ok(AsmInstruction::JP(JumpAddress::Label(s))),
-                        Item::Numeric(_) => Err(ConversionError::invalid_argument_type(arg.at)),
-                        Item::Hash => Err(ConversionError::invalid_argument_type(arg.at)),
-                        Item::Comma
-                        | Item::Colon
-                        | Item::Semicolon
-                        | Item::OpenBrace
-                        | Item::CloseBrace => Err(ConversionError::invalid_argument_type(arg.at)),
+                        Item::Lexical(lex) => {
+                            match lex {
+                                Lexical::Ident(s) => Ok(AsmInstruction::JP(JumpAddress::Label(s))),
+                                Lexical::Numeric(a) => Ok(AsmInstruction::JP(JumpAddress::Address(Address::new(a)))),
+                            }
+
+                        }
+                        _ => Err(ConversionError::invalid_argument_type(arg.at)),
                     }
                 } else {
                     Err(ConversionError::too_many_arguments(
@@ -112,40 +113,32 @@ impl Converter {
         }
     }
 
-    fn get_total_span(over: &[SpannedItem]) -> Option<RangeInclusive<Location>> {
-        let (mut a, mut b) = (&over.last()?.at, &over.first()?.at);
-        let cmp = Location::compare_ranges(a, b);
-        if cmp.is_none() {
-            return Some(*a.start().min(b.start())..=*a.end().max(b.end()));
-        }
-        if cmp.unwrap() == Ordering::Greater {
-            std::mem::swap(&mut a, &mut b);
-        }
-        Some(*a.start()..=*b.end())
+    fn get_total_span(over: &[Spanned<Item>]) -> Option<SourceSpan> {
+        let (a, b) = (&over.last()?.at, &over.first()?.at);
+        let start = a.offset().min(b.offset());
+        let end = (a.offset() + a.len()).max(b.offset() + b.len());
+        Some((start, end).into())
     }
 
     fn peek(&self) -> Option<&Item> {
         self.tokens.last().map(|si| &si.item)
     }
 
-    fn pop(&mut self) -> Option<SpannedItem> {
+    fn pop(&mut self) -> Option<Spanned<Item>> {
         self.tokens.pop()
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct SpannedIdent {
-    ident: String,
-    at: RangeInclusive<Location>,
-}
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Ident(String);
 
-impl TryFrom<SpannedItem> for SpannedIdent {
-    type Error = SpannedItem;
+impl TryFrom<Spanned<Item>> for Spanned<Ident> {
+    type Error = Spanned<Item>;
 
-    fn try_from(value: SpannedItem) -> Result<Self, Self::Error> {
-        if let Item::Ident(s) = value.item {
+    fn try_from(value: Spanned<Item>) -> Result<Self, Self::Error> {
+        if let Item::Lexical(Lexical::Ident(s)) = value.item {
             Ok(Self {
-                ident: s,
+                item: Ident(s),
                 at: value.at,
             })
         } else {
@@ -168,26 +161,26 @@ impl From<AsmInstruction> for ExecutionItem {
 
 #[derive(Debug, Clone)]
 pub enum ConversionError {
-    ExpectedIdent { at: RangeInclusive<Location> },
-    UnknownInstruction { opcode: SpannedIdent },
-    TooManyArguments { arguments: RangeInclusive<Location> },
-    InvalidArgumentType { argument: RangeInclusive<Location> },
+    ExpectedIdent { at: SourceSpan },
+    UnknownInstruction { opcode: Spanned<Ident> },
+    TooManyArguments { arguments: SourceSpan },
+    InvalidArgumentType { argument: SourceSpan },
 }
 
 impl ConversionError {
-    fn expecting_ident(at: RangeInclusive<Location>) -> Self {
+    fn expecting_ident(at: SourceSpan) -> Self {
         Self::ExpectedIdent { at }
     }
 
-    fn unknown_instruction(opcode: SpannedIdent) -> Self {
+    fn unknown_instruction(opcode: Spanned<Ident>) -> Self {
         Self::UnknownInstruction { opcode }
     }
 
-    fn too_many_arguments(range: RangeInclusive<Location>) -> Self {
+    fn too_many_arguments(range: SourceSpan) -> Self {
         Self::TooManyArguments { arguments: range }
     }
 
-    fn invalid_argument_type(argument: RangeInclusive<Location>) -> Self {
+    fn invalid_argument_type(argument: SourceSpan) -> Self {
         Self::InvalidArgumentType { argument }
     }
 }

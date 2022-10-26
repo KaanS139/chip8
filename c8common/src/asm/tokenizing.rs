@@ -3,41 +3,41 @@ use std::ops::RangeInclusive;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Item {
-    Ident(String),
-    Numeric(i64),
-    Comma,
-    Colon,
-    Semicolon,
-    Hash,
-    OpenBrace,
-    CloseBrace,
-}
-
-impl Item {
-    pub(crate) fn ident_name(&self) -> Option<&String> {
-        match self {
-            Self::Ident(s) => Some(s),
-            _ => None,
-        }
-    }
+    Lexical(Lexical),
+    Punct(Punct),
+    Linebreak,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct SpannedItem {
-    pub(crate) item: Item,
-    pub(crate) at: RangeInclusive<Location>,
+pub enum Lexical {
+    Ident(String),
+    Numeric(u16),
 }
 
-impl SpannedItem {
-    fn new(item: Item, at: RangeInclusive<Location>) -> Self {
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Punct {
+    Comma,
+    Period,
+    Colon,
+    Dollar,
+    Equals,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Spanned<T> {
+    pub(crate) item: T,
+    pub(crate) at: SourceSpan,
+}
+
+impl<T> Spanned<T> {
+    fn new(item: T, at: SourceSpan) -> Self {
         Self { item, at }
     }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Location {
-    line: usize,
-    column: usize,
+    byte: usize,
 }
 
 impl PartialOrd for Location {
@@ -48,13 +48,17 @@ impl PartialOrd for Location {
 
 impl Ord for Location {
     fn cmp(&self, other: &Self) -> Ordering {
-        let s = (self.line, self.column);
-        let o = (other.line, other.column);
-        s.cmp(&o)
+        self.byte.cmp(&other.byte)
     }
 }
 
 impl Location {
+    pub fn new(at: usize) -> Self {
+        Self {
+            byte: at
+        }
+    }
+
     pub fn compare_ranges(a: &RangeInclusive<Self>, b: &RangeInclusive<Self>) -> Option<Ordering> {
         if a.end() >= b.start() || b.end() >= a.start() {
             None
@@ -81,14 +85,14 @@ impl MultiCharItem {
 
     fn into_item(self) -> Result<Item, String> {
         Ok(match self {
-            Self::Ident(s) => Item::Ident(s),
-            Self::Numeric(n) => Item::Numeric({
+            Self::Ident(s) => Item::Lexical(Lexical::Ident(s)),
+            Self::Numeric(n) => Item::Lexical(Lexical::Numeric({
                 if let Some(hex) = n.strip_prefix("0x") {
-                    i64::from_str_radix(hex, 16).map_err(|_| n)?
+                    u16::from_str_radix(hex, 16).map_err(|_| n)?
                 } else {
                     n.parse().map_err(|_| n)?
                 }
-            }),
+            })),
         })
     }
 
@@ -100,23 +104,21 @@ impl MultiCharItem {
     }
 }
 
-pub fn tokenize(original: &str) -> Result<Vec<SpannedItem>, TokenizingError> {
+pub fn tokenize(original: &str) -> Result<Vec<Spanned<Item>>, TokenizingError> {
     use TokenizingError::*;
     let mut output = Vec::new();
 
-    let mut current_line: usize = 0;
-    let mut old_line_end: usize = 0;
-    let mut current_ident: Option<(Location, MultiCharItem)> = None;
+    let mut current_ident: Option<(usize, MultiCharItem)> = None;
+    let mut go_to_next_linebreak = false;
     for (index, character) in original.chars().enumerate() {
-        let current_start_loc = Location {
-            line: current_line,
-            column: index.checked_sub(old_line_end).unwrap(),
-        };
-        let current_end_loc = Location {
-            line: current_line,
-            column: (index + 1).checked_sub(old_line_end).unwrap(),
-        };
-        let single_character_range = current_start_loc..=current_end_loc;
+        if go_to_next_linebreak {
+            if character == '\n' {
+                go_to_next_linebreak = false;
+            }
+            continue;
+        }
+
+        let single_character_range = (index, 1).into();
         if !character.is_ascii() {
             return Err(Unicode {
                 offending_character: character,
@@ -126,50 +128,61 @@ pub fn tokenize(original: &str) -> Result<Vec<SpannedItem>, TokenizingError> {
 
         {
             let punctuation = match character {
-                ':' => Some(Item::Colon),
-                ';' => Some(Item::Semicolon),
-                '#' => Some(Item::Hash),
-                '[' => Some(Item::OpenBrace),
-                ']' => Some(Item::CloseBrace),
+                ':' => Some(Item::Punct(Punct::Colon)),
+                ';' => Some(Item::Linebreak),
+                ',' => Some(Item::Punct(Punct::Comma)),
+                '$' => Some(Item::Punct(Punct::Dollar)),
+                '=' => Some(Item::Punct(Punct::Equals)),
+                '.' => Some(Item::Punct(Punct::Period)),
                 _ => None,
             };
 
             if let Some(punctuation) = punctuation {
                 if let Some((start, current)) = current_ident {
-                    let range = start..=current_end_loc;
-                    output.push(SpannedItem::new(
-                        current.into_item().map_err(|e| InvalidItem {
+                    let range = (start, index - start).into();
+                    output.push(Spanned::new(
+                        current.into_item().map_err(|e| InvalidNumber {
                             offending_string: e,
                             at: range,
                         })?,
-                        start..=current_end_loc,
+                        range,
                     ));
                     current_ident = None;
                 }
 
-                output.push(SpannedItem {
-                    item: punctuation,
+                if punctuation == Item::Linebreak {
+                    go_to_next_linebreak = true;
+                }
+
+                output.push(Spanned {
+                    item: punctuation.clone(),
                     at: single_character_range,
                 });
+
+                if punctuation == Item::Punct(Punct::Colon) {
+                    output.push(Spanned {
+                        item: Item::Linebreak,
+                        at: single_character_range,
+                    });
+                }
                 continue;
             }
         }
 
         if character.is_whitespace() {
             if let Some((start, current)) = current_ident {
-                let range = start..=current_end_loc;
-                output.push(SpannedItem::new(
-                    current.into_item().map_err(|e| InvalidItem {
+                let range = (start, index - start).into();
+                output.push(Spanned::new(
+                    current.into_item().map_err(|e| InvalidNumber {
                         offending_string: e,
                         at: range,
                     })?,
-                    start..=current_end_loc,
+                    range,
                 ));
                 current_ident = None;
             }
             if character == '\n' {
-                current_line += 1;
-                old_line_end = index;
+                output.push(Spanned::new(Item::Linebreak, (index, 1).into()))
             }
             continue;
         }
@@ -179,10 +192,7 @@ pub fn tokenize(original: &str) -> Result<Vec<SpannedItem>, TokenizingError> {
                 current.push(character);
             } else {
                 current_ident = Some((
-                    Location {
-                        line: current_line,
-                        column: index.checked_sub(old_line_end).unwrap(),
-                    },
+                    index,
                     MultiCharItem::string(character),
                 ));
             }
@@ -194,24 +204,11 @@ pub fn tokenize(original: &str) -> Result<Vec<SpannedItem>, TokenizingError> {
                 current.push(character);
             } else {
                 current_ident = Some((
-                    Location {
-                        line: current_line,
-                        column: index.checked_sub(old_line_end).unwrap(),
-                    },
+                    index,
                     MultiCharItem::number(character),
                 ));
             }
             continue;
-        }
-
-        if character == '-' && current_ident.is_none() {
-            current_ident = Some((
-                Location {
-                    line: current_line,
-                    column: index.checked_sub(old_line_end).unwrap(),
-                },
-                MultiCharItem::number(character),
-            ));
         }
 
         return Err(UnrecognisedItem {
@@ -223,18 +220,30 @@ pub fn tokenize(original: &str) -> Result<Vec<SpannedItem>, TokenizingError> {
     Ok(output)
 }
 
-#[derive(Debug)]
+use miette::{Diagnostic, SourceSpan};
+use thiserror::Error;
+
+#[derive(Debug, Error, Diagnostic)]
 pub enum TokenizingError {
+    #[error("Unrecognised item '{}'", .offending_character)]
+    #[diagnostic(code(c8common::asm::unrecognised_item))]
     UnrecognisedItem {
         offending_character: char,
-        at: RangeInclusive<Location>,
+        #[label("here")]
+        at: SourceSpan,
     },
-    InvalidItem {
+    #[error("Invalid item '{}'", .offending_string)]
+    #[diagnostic(code(c8common::asm::invalid_item))]
+    InvalidNumber {
         offending_string: String,
-        at: RangeInclusive<Location>,
+        #[label("here")]
+        at: SourceSpan,
     },
+    #[error("Non-ASCII Unicode is not supported")]
+    #[diagnostic(code(c8common::asm::unicode))]
     Unicode {
         offending_character: char,
-        at: RangeInclusive<Location>,
+        #[label("here")]
+        at: SourceSpan,
     },
 }

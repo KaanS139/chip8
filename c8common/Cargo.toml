@@ -10,6 +10,8 @@ log.workspace = true
 chip8_base.workspace = true
 tap.workspace = true
 getset = "0.1.2"
+miette = { version = "5.3.0", features = ["fancy"] }
+thiserror = "1.0.37"
 
 [dependencies.c8asm-proc]
 path = "../c8asm-proc"

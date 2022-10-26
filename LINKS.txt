@@ -5,6 +5,18 @@ https://riptutorial.com/rust/example/4404/a-simple-tcp-client-and-server-applica
 https://chip-8.github.io/links/
 https://tobiasvl.github.io/blog/write-a-chip-8-emulator/
 https://github.com/mattmikolay/chip-8/wiki/CHIP%E2%80%908-Instruction-Set
+http://devernay.free.fr/hacks/chip8/C8TECH10.HTM#Fx29
+https://github.com/wernsey/chip8
+http://devernay.free.fr/hacks/chip8/chip8def.htm
+https://github.com/Keating950/chip8c
+https://github.com/Keating950/chip8c/wiki/Syntax-rules
+https://github.com/zkat/miette
+https://docs.rs/miette/latest/miette/struct.MietteHandlerOpts.html
+https://docs.rs/miette/latest/miette/struct.GraphicalTheme.html
+
+# Other
+https://crates.io/crates/ariadne
+https://github.com/zesterer/chumsky/
 
 # Chip-8 ROMs
 https://github.com/kripod/chip8-roms/blob/master/demos/Maze%20%5BDavid%20Winter%2C%20199x%5D.ch8
