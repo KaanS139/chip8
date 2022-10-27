@@ -107,7 +107,7 @@ impl<T: ControlledInterpreter> InterpreterHook<T> for Recorder {
         if self.frame_number == 0
             || <Self as HookInternalAccess<T>>::is_modify_screen(&*self, frame)
         {
-            self.write_new_frame(int.display().clone())
+            self.write_new_frame(*int.display())
         }
     }
 

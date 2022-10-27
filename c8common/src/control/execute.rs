@@ -1,14 +1,14 @@
 use crate::control::{ControlledInterpreter, ControlledToInterpreter, FrameInfo, InterpreterState};
 use crate::hooks::{FurtherHooks, InterpreterHook, InterpreterHookBundle};
 use crate::key::Keys;
-use chip8_base::{Display, Keys as RawKeys};
+use crate::Display;
 use getset::{Getters, MutGetters};
 use log::{debug, info, trace, warn};
 use std::marker::PhantomData;
 use std::time::Duration;
 
 #[derive(Debug, Getters, MutGetters)]
-#[getset(get, get_mut)]
+#[getset(get = "pub", get_mut = "pub")]
 pub struct Interpreter<I: ControlledInterpreter> {
     inner: I,
     buzzer_active: bool,
@@ -20,10 +20,10 @@ pub struct Interpreter<I: ControlledInterpreter> {
     hooks: Vec<Box<dyn InterpreterHook<I>>>,
 }
 
-impl<T: ControlledInterpreter> chip8_base::Interpreter for Interpreter<T> {
-    fn step(&mut self, keys: &RawKeys) -> Option<Display> {
+impl<T: ControlledInterpreter> Interpreter<T> {
+    pub fn step(&mut self, keys: Keys) -> Option<Display> {
         self.hook_pre_cycle();
-        let keys = self.hook_map_keys(self.state, Keys::from_raw(keys));
+        let keys = self.hook_map_keys(self.state, keys);
         match self.state {
             InterpreterState::Normal => {}
             InterpreterState::Held => {
@@ -89,18 +89,14 @@ impl<T: ControlledInterpreter> chip8_base::Interpreter for Interpreter<T> {
         if screen_modified {
             debug!("Screen has been updated.");
             self.hook_post_cycle();
-            return Some(*self.inner.display().raw());
+            return Some(*self.inner.display());
         }
         self.hook_post_cycle();
         None
     }
 
-    fn speed(&self) -> Duration {
+    pub fn speed(&self) -> Duration {
         Duration::from_secs_f32(1. / (self.step_frequency as f32))
-    }
-
-    fn buzzer_active(&self) -> bool {
-        self.buzzer_active
     }
 }
 

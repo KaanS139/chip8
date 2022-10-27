@@ -1,0 +1,21 @@
+[package]
+name = "c8asm"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tap.workspace = true
+log.workspace = true
+c8common = { path = "../c8common" }
+miette = { version = "5.3.0" }
+thiserror = "1.0.37"
+
+[dependencies.c8asm-proc]
+path = "../c8asm-proc"
+optional = true
+
+[features]
+default = []
+proc = ["dep:c8asm-proc"]

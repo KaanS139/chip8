@@ -1,5 +1,6 @@
 use crate::prelude::*;
 use asm::ROM;
+use c8asm::Assembler;
 use c8common::control::{ControlledInterpreter, FrameInfo};
 use c8common::display::ScreenModification;
 use c8common::key::Keys;
@@ -389,6 +390,8 @@ impl Chip8Interpreter {
         }
     }
 
+    #[deprecated = "Use `self.register(GeneralRegister::VF)` instead"]
+    #[allow(dead_code)]
     fn vf(&self) -> Datum {
         *self.register(GeneralRegister::VF)
     }
@@ -415,11 +418,11 @@ impl Chip8Interpreter {
         }
     }
 
-    pub fn new_assembled<F: FnOnce(&mut asm::Assembler) -> &mut asm::Assembler>(with: F) -> Self {
+    pub fn new_assembled<F: FnOnce(&mut Assembler) -> &mut Assembler>(with: F) -> Self {
         Self::new_from_rom(Self::assembled_program(with))
     }
 
-    pub fn new_assembled_save<F: FnOnce(&mut asm::Assembler) -> &mut asm::Assembler>(
+    pub fn new_assembled_save<F: FnOnce(&mut Assembler) -> &mut Assembler>(
         to: impl AsRef<std::path::Path>,
         with: F,
     ) -> Self {
@@ -428,8 +431,8 @@ impl Chip8Interpreter {
         Self::new_from_rom(program)
     }
 
-    fn assembled_program<F: FnOnce(&mut asm::Assembler) -> &mut asm::Assembler>(with: F) -> ROM {
-        let mut assembler = asm::Assembler::new();
+    fn assembled_program<F: FnOnce(&mut Assembler) -> &mut Assembler>(with: F) -> ROM {
+        let mut assembler = Assembler::new();
         (with)(&mut assembler);
         assembler.assemble()
     }

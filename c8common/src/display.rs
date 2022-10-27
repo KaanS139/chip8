@@ -1,16 +1,15 @@
+use crate::pixel::Pixel;
 use crate::Datum;
-use chip8_base::Pixel;
 
-#[derive(Debug, Clone)]
-#[allow(missing_copy_implementations)]
-pub struct Display(chip8_base::Display);
+#[derive(Debug, Copy, Clone)]
+pub struct Display([[Pixel; 64]; 32]);
 
 impl Display {
     pub fn blank() -> Self {
         Self([[Pixel::Black; 64]; 32])
     }
 
-    pub fn raw(&self) -> &chip8_base::Display {
+    pub fn raw(&self) -> &[[Pixel; 64]; 32] {
         &self.0
     }
 
@@ -58,14 +57,6 @@ impl Display {
         } else {
             self.set_pixel_at(x, y, Pixel::Black);
             true
-        }
-    }
-
-    fn bool_to_pixel(b: bool) -> Pixel {
-        if b {
-            Pixel::White
-        } else {
-            Pixel::Black
         }
     }
 

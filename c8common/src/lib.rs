@@ -6,7 +6,7 @@ pub use address::Address;
 
 pub const NUMBER_OF_ADDRESSES: usize = Address::NUMBER_OF_ADDRESSES;
 
-mod instruction;
+pub mod instruction;
 pub use instruction::{Instruction, InstructionDecodeError, RawInstruction};
 
 mod data;
@@ -14,6 +14,8 @@ use crate::data::Nibble;
 pub use data::Datum;
 
 pub mod asm;
+
+pub mod pixel;
 
 pub mod memory;
 

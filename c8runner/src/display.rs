@@ -1,6 +1,8 @@
 use std::io::Write;
 
 use anyhow::Context;
+use c8common::pixel::Pixel;
+use c8common::Display;
 use pixels::{Pixels, SurfaceTexture};
 use winit::dpi::LogicalSize;
 use winit::event_loop::EventLoop;
@@ -29,13 +31,13 @@ pub fn init() -> anyhow::Result<(EventLoop<()>, Window, Pixels)> {
     Ok((event_loop, window, pixels))
 }
 
-pub fn update(pixels: &mut Pixels, buffer: &[[crate::Pixel; 64]; 32]) -> anyhow::Result<()> {
+pub fn update(pixels: &mut Pixels, buffer: &Display) -> anyhow::Result<()> {
     let mut old_buf = pixels.get_frame();
-    for px in buffer.concat() {
+    for px in buffer.raw().concat() {
         old_buf
             .write_all(match px {
-                crate::Pixel::Black => &[0_u8, 0_u8, 0_u8, 255_u8],
-                crate::Pixel::White => &[255_u8, 255_u8, 255_u8, 255_u8],
+                Pixel::Black => &[0_u8, 0_u8, 0_u8, 255_u8],
+                Pixel::White => &[255_u8, 255_u8, 255_u8, 255_u8],
             })
             .context("Error when writing data to internal pixels buffer")?
     }

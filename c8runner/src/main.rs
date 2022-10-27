@@ -2,7 +2,7 @@
 #![warn(missing_copy_implementations)]
 
 use c8common::control::execute::Interpreter;
-
+use c8runner::run::run;
 use clap::Parser;
 use simplelog::{ColorChoice, ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
 use std::str::FromStr;
@@ -49,17 +49,10 @@ fn main() {
     //
     // int.memory().save(std::fs::File::create("roms/test_rng.mem").unwrap());
 
-    // chip8_base::run(
-    //     int.to_interpreter()
-    //         .with_frequency(frequency)
-    //         .with_simulated_frequency(simulated_frequency),
-    // );
-    chip8_base::run(
-        Interpreter::builder()
-            // .extend_with(c8hooks::execution_dumper::ExecutionDumper::dump_to("exec.dump").unwrap())
-            .extend_with(c8hooks::recorder::Recorder::images_to_folder("output"))
-            .build(int)
-            .with_frequency(frequency)
-            .with_simulated_frequency(simulated_frequency),
-    );
+    run(Interpreter::builder()
+        // .extend_with(c8hooks::execution_dumper::ExecutionDumper::dump_to("exec.dump").unwrap())
+        .extend_with(c8hooks::recorder::Recorder::images_to_folder("output"))
+        .build(int)
+        .with_frequency(frequency)
+        .with_simulated_frequency(simulated_frequency));
 }

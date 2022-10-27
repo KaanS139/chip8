@@ -1,3 +1,4 @@
+use c8common::key::Keys;
 use winit::event::VirtualKeyCode;
 use winit_input_helper::WinitInputHelper;
 use VirtualKeyCode::*;
@@ -25,6 +26,6 @@ const KEYMAP: [VirtualKeyCode; 16] = [
     V,    //F
 ];
 
-pub fn key_state(input: &WinitInputHelper) -> [bool; 16] {
-    KEYMAP.map(|k| input.key_held(k))
+pub fn key_state(input: &WinitInputHelper) -> Keys {
+    Keys::from_raw(KEYMAP.map(|k| input.key_held(k)))
 }

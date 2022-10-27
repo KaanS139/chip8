@@ -27,7 +27,7 @@ def main(folder: Path):
         '-s', '1200x600', '-sws_flags', 'neighbor',
         '-vsync', 'vfr',
         '-c:v', 'libx264',
-        '-vf', 'settb=AVTB,setpts=N/4/TB,fps=4',
+        '-vf', 'settb=AVTB,setpts=N/60/TB,fps=60',
         '-y', folder.joinpath("out.mkv")
     ]
     res = subprocess.call(cmd)

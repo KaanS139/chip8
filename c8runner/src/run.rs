@@ -1,9 +1,9 @@
-mod display;
-mod input;
-mod sound;
-
-use crate::{Interpreter, Pixel};
+use crate::{display, input, sound};
 use anyhow::Context;
+use c8common::control::execute::Interpreter;
+use c8common::control::ControlledInterpreter;
+use c8common::key::Keys;
+use c8common::Display;
 use crossbeam::atomic::AtomicCell;
 use crossbeam::sync::WaitGroup;
 use std::error::Error;
@@ -17,9 +17,9 @@ use winit_input_helper::WinitInputHelper;
 
 /// Starts the interpreter, blocking the current thread and running until killed.
 /// Windowing, graphics, sound, and timing are all handled within this method.
-pub fn run<I>(mut interpreter: I) -> !
+pub fn run<I: ControlledInterpreter>(mut interpreter: Interpreter<I>) -> !
 where
-    I: Interpreter + Send + 'static,
+    I: Send + 'static,
 {
     //init display subsystem
     log::info!("Initalising display components...");
@@ -32,8 +32,8 @@ where
     let mut input = WinitInputHelper::new();
 
     //include a flag so we know if the current frame has been drawn, to avoid drawing it twice
-    let frame_buffer = Arc::new(AtomicCell::new(([[Pixel::default(); 64]; 32], false)));
-    let input_buffer = Arc::new(AtomicCell::new([false; 16]));
+    let frame_buffer = Arc::new(AtomicCell::new((Display::blank(), false)));
+    let input_buffer = Arc::new(AtomicCell::new(Keys::from_number(0)));
 
     //used so CPU doesnt start until display is ready
     //cant start CPU after display because display has to be on the main thread and blocks it
@@ -60,13 +60,13 @@ where
             loop {
                 let t0 = Instant::now();
                 //step the cpu, read input buffer, write to framebuffer
-                if let Some(update) = interpreter.step(&input_buffer.load()) {
+                if let Some(update) = interpreter.step(input_buffer.load()) {
                     frame_buffer.store((update, false));
                 }
 
                 //handle sound
                 if let Some(buzzer) = &buzzer {
-                    buzzer.switch.store(interpreter.buzzer_active(), Ordering::Relaxed);
+                    buzzer.switch.store(*interpreter.buzzer_active(), Ordering::Relaxed);
                 }
 
                 //sleep to make time steps uniform

@@ -25,7 +25,7 @@ impl Keys {
 }
 
 impl Keys {
-    pub fn from_raw(raw: &[bool; 16]) -> Self {
+    pub fn from_raw(raw: [bool; 16]) -> Self {
         let mut s = Self(0);
         for (i, &item) in raw.iter().enumerate() {
             if item {

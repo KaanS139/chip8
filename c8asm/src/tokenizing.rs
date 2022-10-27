@@ -1,5 +1,6 @@
+use miette::{Diagnostic, SourceSpan};
 use std::cmp::Ordering;
-use std::ops::RangeInclusive;
+use thiserror::Error;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Item {
@@ -8,10 +9,71 @@ pub enum Item {
     Linebreak,
 }
 
+impl Item {
+    pub fn as_lexical(&self) -> Option<&Lexical> {
+        match self {
+            Self::Lexical(l) => Some(l),
+            _ => None,
+        }
+    }
+
+    pub fn to_lexical(self) -> Option<Lexical> {
+        match self {
+            Self::Lexical(l) => Some(l),
+            _ => None,
+        }
+    }
+
+    pub fn as_punct(&self) -> Option<Punct> {
+        match self {
+            Self::Punct(p) => Some(*p),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Lexical {
+    PrefixedIdent(Punct, String),
     Ident(String),
     Numeric(u16),
+}
+
+impl Lexical {
+    pub fn as_ident(&self) -> Option<&String> {
+        match self {
+            Self::Ident(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn to_ident(self) -> Option<String> {
+        match self {
+            Self::Ident(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_prefixed(&self) -> Option<(Punct, &String)> {
+        match self {
+            Self::PrefixedIdent(p, s) => Some((*p, s)),
+            _ => None,
+        }
+    }
+
+    pub fn to_prefixed(self) -> Option<(Punct, String)> {
+        match self {
+            Self::PrefixedIdent(p, s) => Some((p, s)),
+            _ => None,
+        }
+    }
+
+    pub fn as_numeric(&self) -> Option<u16> {
+        match self {
+            Self::Numeric(p) => Some(*p),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -23,7 +85,7 @@ pub enum Punct {
     Equals,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Spanned<T> {
     pub(crate) item: T,
     pub(crate) at: SourceSpan,
@@ -32,6 +94,12 @@ pub struct Spanned<T> {
 impl<T> Spanned<T> {
     fn new(item: T, at: SourceSpan) -> Self {
         Self { item, at }
+    }
+}
+
+impl<T> From<Spanned<T>> for SourceSpan {
+    fn from(spanned: Spanned<T>) -> Self {
+        spanned.at
     }
 }
 
@@ -54,22 +122,13 @@ impl Ord for Location {
 
 impl Location {
     pub fn new(at: usize) -> Self {
-        Self {
-            byte: at
-        }
-    }
-
-    pub fn compare_ranges(a: &RangeInclusive<Self>, b: &RangeInclusive<Self>) -> Option<Ordering> {
-        if a.end() >= b.start() || b.end() >= a.start() {
-            None
-        } else {
-            a.start().partial_cmp(b.start())
-        }
+        Self { byte: at }
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 enum MultiCharItem {
+    PrefixedIdent(Punct, Option<String>),
     Ident(String),
     Numeric(String),
 }
@@ -85,6 +144,10 @@ impl MultiCharItem {
 
     fn into_item(self) -> Result<Item, String> {
         Ok(match self {
+            Self::PrefixedIdent(prefix, s) => match s {
+                Some(s) => Item::Lexical(Lexical::PrefixedIdent(prefix, s)),
+                None => Item::Punct(prefix),
+            },
             Self::Ident(s) => Item::Lexical(Lexical::Ident(s)),
             Self::Numeric(n) => Item::Lexical(Lexical::Numeric({
                 if let Some(hex) = n.strip_prefix("0x") {
@@ -98,6 +161,7 @@ impl MultiCharItem {
 
     fn push(&mut self, ch: char) {
         match self {
+            Self::PrefixedIdent(_, s) => s.get_or_insert_with(String::new).push(ch),
             Self::Ident(s) => s.push(ch),
             Self::Numeric(s) => s.push(ch),
         }
@@ -131,8 +195,8 @@ pub fn tokenize(original: &str) -> Result<Vec<Spanned<Item>>, TokenizingError> {
                 ':' => Some(Item::Punct(Punct::Colon)),
                 ';' => Some(Item::Linebreak),
                 ',' => Some(Item::Punct(Punct::Comma)),
-                '$' => Some(Item::Punct(Punct::Dollar)),
                 '=' => Some(Item::Punct(Punct::Equals)),
+                '$' => Some(Item::Punct(Punct::Dollar)),
                 '.' => Some(Item::Punct(Punct::Period)),
                 _ => None,
             };
@@ -154,10 +218,19 @@ pub fn tokenize(original: &str) -> Result<Vec<Spanned<Item>>, TokenizingError> {
                     go_to_next_linebreak = true;
                 }
 
-                output.push(Spanned {
-                    item: punctuation.clone(),
-                    at: single_character_range,
-                });
+                if punctuation == Item::Punct(Punct::Dollar)
+                    || punctuation == Item::Punct(Punct::Period)
+                {
+                    current_ident = Some((
+                        index,
+                        MultiCharItem::PrefixedIdent(punctuation.as_punct().unwrap(), None),
+                    ))
+                } else {
+                    output.push(Spanned {
+                        item: punctuation.clone(),
+                        at: single_character_range,
+                    });
+                }
 
                 if punctuation == Item::Punct(Punct::Colon) {
                     output.push(Spanned {
@@ -191,10 +264,7 @@ pub fn tokenize(original: &str) -> Result<Vec<Spanned<Item>>, TokenizingError> {
             if let Some((_, ref mut current)) = current_ident {
                 current.push(character);
             } else {
-                current_ident = Some((
-                    index,
-                    MultiCharItem::string(character),
-                ));
+                current_ident = Some((index, MultiCharItem::string(character)));
             }
             continue;
         }
@@ -203,10 +273,7 @@ pub fn tokenize(original: &str) -> Result<Vec<Spanned<Item>>, TokenizingError> {
             if let Some((_, ref mut current)) = current_ident {
                 current.push(character);
             } else {
-                current_ident = Some((
-                    index,
-                    MultiCharItem::number(character),
-                ));
+                current_ident = Some((index, MultiCharItem::number(character)));
             }
             continue;
         }
@@ -219,9 +286,6 @@ pub fn tokenize(original: &str) -> Result<Vec<Spanned<Item>>, TokenizingError> {
 
     Ok(output)
 }
-
-use miette::{Diagnostic, SourceSpan};
-use thiserror::Error;
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum TokenizingError {
