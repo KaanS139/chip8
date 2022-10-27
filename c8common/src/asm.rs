@@ -21,13 +21,13 @@ impl ROM {
         Self(containing)
     }
 
-    pub fn save(&self, path: impl AsRef<std::path::Path>) {
+    pub fn save(&self, path: impl AsRef<Path>) {
         let buf = self.0.map(|datum| datum.0);
         std::fs::write(path, buf).expect("failed to write to file!")
     }
 
     pub fn from_bytes(mut bytes: Vec<u8>) -> Result<Self, LoadError> {
-        if bytes.len() < NUMBER_OF_ADDRESSES - 0x200 {
+        if bytes.len() < NUMBER_OF_ADDRESSES - Address::PROGRAM_START_INDEX {
             info!(
                 "Padding bytes from {} to {}",
                 bytes.len(),
@@ -38,7 +38,10 @@ impl ROM {
                     .take(NUMBER_OF_ADDRESSES - Address::PROGRAM_START_INDEX - bytes.len()),
             )
         }
-        match bytes.len().cmp(&(NUMBER_OF_ADDRESSES - 0x200)) {
+        match bytes
+            .len()
+            .cmp(&(NUMBER_OF_ADDRESSES - Address::PROGRAM_START_INDEX))
+        {
             Ordering::Less => panic!("Should not be possible!"),
             Ordering::Equal => {
                 let bytes = bytes

@@ -2,6 +2,7 @@
 #![warn(missing_copy_implementations)]
 
 mod address;
+
 pub use address::Address;
 
 pub const NUMBER_OF_ADDRESSES: usize = Address::NUMBER_OF_ADDRESSES;
@@ -60,7 +61,11 @@ impl GeneralRegister {
     }
 
     pub fn from_byte(index: u8) -> Self {
-        match index {
+        Self::from_byte_checked(index).unwrap_or_else(|| panic!("Invalid index for register! {}", index))
+    }
+
+    fn from_byte_checked(index: u8) -> Option<Self> {
+        Some(match index {
             0 => Self::V0,
             1 => Self::V1,
             2 => Self::V2,
@@ -77,11 +82,19 @@ impl GeneralRegister {
             13 => Self::VD,
             14 => Self::VE,
             15 => Self::VF,
-            index => panic!("Invalid index for register! {}", index),
-        }
+            _ => None?,
+        })
     }
 
     pub fn until_including(self) -> impl Iterator<Item = Self> {
         (0..=(self as usize as u8)).map(Self::from_byte)
+    }
+
+    pub fn from_name(from: &str) -> Option<Self> {
+        if from.len() == 2 {
+            Self::from_byte_checked(u8::from_str_radix(&from[1..], 16).ok()?)
+        } else {
+            None
+        }
     }
 }

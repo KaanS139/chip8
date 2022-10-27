@@ -1,47 +1,50 @@
 use crate::tokenizing::{Item, Lexical, Punct, Spanned};
-use crate::AsmInstruction;
 use error::*;
 use miette::SourceSpan;
 use std::iter::Peekable;
 
-pub fn parse(tokens: Vec<Spanned<Item>>) -> Result<Vec<ExecutionItem>, ConversionError> {
+pub fn parse(tokens: Vec<Spanned<Item>>) -> Result<Vec<Spanned<ExecutionItem>>, ConversionError> {
     Parser::new(tokens.into_iter()).convert()
 }
 
 struct Parser<T: Iterator<Item = Spanned<Item>>> {
     tokens: Peekable<T>,
-    output: Vec<ExecutionItem>,
 }
 
 impl<T: Iterator<Item = Spanned<Item>>> Parser<T> {
     fn new(tokens: T) -> Self {
         Self {
             tokens: tokens.peekable(),
-            output: vec![],
         }
     }
 
-    fn convert(mut self) -> Result<Vec<ExecutionItem>, ConversionError> {
+    fn convert(mut self) -> Result<Vec<Spanned<ExecutionItem>>, ConversionError> {
+        let mut output = vec![];
         loop {
             let line = match self.get_line() {
                 Some(line) => line,
                 None => {
-                    return Ok(self.output);
+                    return Ok(output);
                 }
             };
-            let action = dbg!(self.parse_line(line)?);
-            self.output.push(action);
+            let action = self.parse_line(line)?;
+            output.push(action);
         }
     }
 
     fn get_line(&mut self) -> Option<Peekable<std::vec::IntoIter<Spanned<Item>>>> {
         let mut line = vec![];
+        let mut linebroken = false;
         for next in self.tokens.by_ref() {
             if next.item == Item::Linebreak {
+                linebroken = true;
                 break;
             }
 
             line.push(next);
+        }
+        if line.is_empty() && !linebroken {
+            return None;
         }
         Some(line.into_iter().peekable())
     }
@@ -49,10 +52,10 @@ impl<T: Iterator<Item = Spanned<Item>>> Parser<T> {
     fn parse_line<S: Iterator<Item = Spanned<Item>>>(
         &self,
         mut line: Peekable<S>,
-    ) -> Result<ExecutionItem, ConversionError> {
+    ) -> Result<Spanned<ExecutionItem>, ConversionError> {
         match line.peek() {
             Some(first) => match first.item {
-                Item::Lexical(Lexical::PrefixedIdent(_, _)) => Self::parse_line_internal(line),
+                Item::Lexical(Lexical::PrefixedIdent(_, _)) => Ok(Self::parse_line_internal(line)?),
                 Item::Lexical(Lexical::Ident(_)) => {
                     let first = line.next().expect("known to exist by peeking");
                     if matches!(
@@ -66,59 +69,122 @@ impl<T: Iterator<Item = Spanned<Item>>> Parser<T> {
                             .expect("known correct by match")
                             .to_ident()
                             .expect("known correct by match");
-                        return Ok(ExecutionItem::Label(Label::Direct(label)));
+                        return Ok(ExecutionItem::Label(Label::Direct(label)).spanned(first.at));
                     }
                     // This is an instruction
-                    todo!()
+                    let opcode = first
+                        .item
+                        .to_lexical()
+                        .expect("known correct by match")
+                        .to_ident()
+                        .expect("known correct by match")
+                        .to_ascii_lowercase();
+                    let arguments = Self::get_instruction_arguments(line)?;
+                    Ok(ExecutionItem::Instruction {
+                        opcode,
+                        arguments: arguments.item,
+                    }
+                    .spanned(long_span(first.at, arguments.at)))
                 }
-                Item::Lexical(Lexical::Numeric(_)) => {
-                    // Raw data must use the `.data` internal attribute
-                    Err(DataDefinitionError::exposed_data(
-                        Self::get_total_span(&line.collect::<Vec<_>>()[..])
-                            .expect("the span exists"),
-                    ))?
-                }
+                Item::Lexical(Lexical::Numeric(_)) => Err(DataDefinitionError::exposed_data(
+                    Self::get_total_span(&line.collect::<Vec<_>>()[..]).expect("the span exists"),
+                ))?,
                 Item::Punct(_) => Err(ConversionError::no_rules(first.at)),
-                Item::Linebreak => Ok(ExecutionItem::Nothing),
+                Item::Linebreak => Ok(ExecutionItem::Nothing.spanned(first.at)),
             },
-            None => Ok(ExecutionItem::Nothing),
+            None => Ok(ExecutionItem::Nothing.spanned((0, 0).into())),
         }
     }
 
     fn add_raw_data<S: Iterator<Item = Spanned<Item>>>(
         line: Peekable<S>,
-    ) -> Result<ExecutionItem, ConversionError> {
+    ) -> Result<Spanned<ExecutionItem>, DataDefinitionError> {
         let mut data = vec![];
         let mut expecting_number = true;
+        let mut total_span: Option<SourceSpan> = None;
         for Spanned { item, at } in line {
+            if let Some(i) = total_span.as_mut() {
+                *i = long_span(*i, at)
+            }
             if expecting_number {
                 let number = item
                     .to_lexical()
-                    .map(|i| i.as_numeric())
-                    .flatten()
+                    .and_then(|i| i.as_numeric())
                     .ok_or_else(|| DataDefinitionError::data_entry(at, true))?;
                 data.push(number);
                 expecting_number = false;
-            } else {
-                if item.as_punct().map(|p| p == Punct::Comma) != Some(true) {
+            } else if item.as_punct().map(|p| p == Punct::Comma) != Some(true) {
                     Err(DataDefinitionError::data_entry(at, false))?
-                } else {
-                    expecting_number = true;
-                }
+            } else {
+                expecting_number = true;
             }
         }
         assert!(
             !data.is_empty(),
             "there must be at least one number in here, guaranteed by peeking"
         );
-        Ok(ExecutionItem::RawData(data))
+        Ok(ExecutionItem::RawData(data).spanned(total_span.unwrap_or_else(|| (0, 0).into())))
+    }
+
+    fn get_instruction_arguments<S: Iterator<Item = Spanned<Item>>>(
+        mut line: Peekable<S>,
+    ) -> Result<Spanned<Vec<Value>>, InstructionError> {
+        let mut args = vec![];
+        let mut expects_comma = false;
+
+        let mut first_span = None;
+        let mut last_span = None;
+        loop {
+            if expects_comma {
+                let comma = line.next();
+                if comma.is_none() {
+                    break;
+                }
+                let Spanned { item, at } = comma.unwrap();
+                if item.as_punct().map(|p| p == Punct::Comma) != Some(true) {
+                    Err(InstructionError::expecting_comma(at))?
+                }
+            }
+            expects_comma = true;
+            let first = line.next();
+            if first.is_none() {
+                break;
+            }
+            let Spanned { item, at } = first.unwrap();
+            if first_span.is_none() {
+                first_span = Some(at);
+            }
+            last_span = Some(at);
+            let item = item
+                .to_lexical()
+                .ok_or_else(|| InstructionError::invalid_arg_type(at))?;
+            let value = match item {
+                Lexical::PrefixedIdent(prefix, ident) => Some(match prefix {
+                    Punct::Period => Value::Local(ident),
+                    Punct::Dollar => Value::Constant(ident),
+                    _ => panic!("Only `Period` and `Dollar` can be used as prefixes!"),
+                }),
+                Lexical::Numeric(num) => Some(Value::Numeric(num)),
+                Lexical::Ident(ident) => Some(Value::Name(ident)),
+            }
+            .ok_or_else(|| InstructionError::invalid_arg_type(at))?;
+            args.push(value);
+        }
+
+        Ok(Spanned {
+            item: args,
+            at: long_span(
+                first_span.unwrap_or_else(|| (0, 0).into()),
+                last_span.unwrap_or_else(|| (0, 0).into()),
+            ),
+        })
     }
 
     fn parse_line_internal<S: Iterator<Item = Spanned<Item>>>(
         mut line: Peekable<S>,
-    ) -> Result<ExecutionItem, ConversionError> {
+    ) -> Result<Spanned<ExecutionItem>, InvocationError> {
         let token = line.next().expect("this is known to exist by peeking");
-        let at = token.at;
+        let invocation_at = token.at;
         let (punct, ident) = token
             .item
             .to_lexical()
@@ -126,13 +192,12 @@ impl<T: Iterator<Item = Spanned<Item>>> Parser<T> {
             .to_prefixed()
             .expect("known to be a prefixed ident");
         match punct {
-            Punct::Period => Self::parse_internal_item(ident, at, line),
+            Punct::Period => Self::parse_internal_item(ident, invocation_at, line),
             Punct::Dollar => {
                 // Dollar item, first token of line => constant assignment
-                let next_token = line
+                let Spanned { item: value, at } = line
                     .next()
-                    .ok_or_else(|| ConstantDefinitionError::constant_needs_value(at))?;
-                let (at, value) = (next_token.at, next_token.item);
+                    .ok_or_else(|| ConstantDefinitionError::constant_needs_value(invocation_at))?;
                 let value: Value = {
                     match value {
                         Item::Lexical(Lexical::Numeric(number)) => Ok(Value::Numeric(number)),
@@ -144,7 +209,8 @@ impl<T: Iterator<Item = Spanned<Item>>> Parser<T> {
                         _ => Err(ConstantDefinitionError::constant_value_type(at)),
                     }?
                 };
-                Ok(ExecutionItem::DefineConstant { name: ident, value })
+                Ok(ExecutionItem::DefineConstant { name: ident, value }
+                    .spanned(long_span(invocation_at, at)))
             }
             _ => panic!("Only `Period` and `Dollar` can be used as prefixes!"),
         }
@@ -154,52 +220,68 @@ impl<T: Iterator<Item = Spanned<Item>>> Parser<T> {
         mut invocation: String,
         invocation_at: SourceSpan,
         mut line: Peekable<S>,
-    ) -> Result<ExecutionItem, ConversionError> {
+    ) -> Result<Spanned<ExecutionItem>, InvocationError> {
         invocation.make_ascii_lowercase();
         match &invocation[..] {
-            "data" => todo!(),
+            "data" => Ok(Self::add_raw_data(line)?),
             "name" => {
                 let mut bindings: Vec<LocalBinding> = vec![];
-                // let mut values = vec![];
+                let mut expects_comma = false;
+                let mut total_span: Option<SourceSpan> = None;
 
-                // loop {
-                //     let name = line.next();
-                //     if name.is_none() {
-                //         break;
-                //     }
-                //     let Spanned { item, at } = name.unwrap();
-                //     let name = item
-                //         .to_lexical()
-                //         .map(|i| i.to_ident())
-                //         .flatten()
-                //         .ok_or_else(|| NameDefinitionError::name_invalid_type(at))?;
-                //     let Spanned { item, at } = line
-                //         .next()
-                //         .ok_or_else(|| NameDefinitionError::no_equals(at))?;
-                //     if item != Item::Punct(Punct::Equals) {
-                //         Err(NameDefinitionError::not_an_equals(at))?
-                //     }
-                //     let Spanned { item, at } = line
-                //         .next()
-                //         .ok_or_else(|| NameDefinitionError::missing_value(at))?;
-                //     let item = item
-                //         .to_lexical()
-                //         .ok_or_else(|| NameDefinitionError::invalid_value_type(at))?;
-                //     let value = match item {
-                //         Lexical::PrefixedIdent(prefix, ident) => Some(match prefix {
-                //             Punct::Period => Value::Local(ident),
-                //             Punct::Dollar => Value::Constant(ident),
-                //             _ => panic!("Only `Period` and `Dollar` can be used as prefixes!"),
-                //         }),
-                //         Lexical::Numeric(num) => Value::Numeric(num),
-                //         _ => None,
-                //     }
-                //     .ok_or_else(|| NameDefinitionError::invalid_value_type(at))?;
-                //     bindings.push(LocalBinding { name, value });
-                // }
+                loop {
+                    if expects_comma {
+                        let comma = line.next();
+                        if comma.is_none() {
+                            break;
+                        }
+                        let Spanned { item, at } = comma.unwrap();
+                        if item.as_punct().map(|p| p == Punct::Comma) != Some(true) {
+                            Err(NameDefinitionError::expecting_comma(at))?
+                        }
+                    }
+                    expects_comma = true;
+                    let name = line.next();
+                    if name.is_none() {
+                        break;
+                    }
+                    let Spanned { item, at } = name.unwrap();
+                    if let Some(i) = total_span.as_mut() {
+                        *i = long_span(*i, at)
+                    }
+                    let name = item
+                        .to_lexical()
+                        .and_then(Lexical::to_ident)
+                        .ok_or_else(|| NameDefinitionError::name_invalid_type(at))?;
+                    let Spanned { item, at } = line
+                        .next()
+                        .ok_or_else(|| NameDefinitionError::no_equals(at))?;
+                    if item != Item::Punct(Punct::Equals) {
+                        Err(NameDefinitionError::not_an_equals(at))?
+                    }
+                    let Spanned { item, at } = line
+                        .next()
+                        .ok_or_else(|| NameDefinitionError::missing_value(at))?;
+                    if let Some(i) = total_span.as_mut() {
+                        *i = long_span(*i, at)
+                    }
+                    let item = item
+                        .to_lexical()
+                        .ok_or_else(|| NameDefinitionError::invalid_value_type(at))?;
+                    let value = match item {
+                        Lexical::PrefixedIdent(prefix, ident) => Some(match prefix {
+                            Punct::Period => Value::Local(ident),
+                            Punct::Dollar => Value::Constant(ident),
+                            _ => panic!("Only `Period` and `Dollar` can be used as prefixes!"),
+                        }),
+                        Lexical::Numeric(num) => Some(Value::Numeric(num)),
+                        Lexical::Ident(ident) => Some(Value::Name(ident)),
+                    }
+                    .ok_or_else(|| NameDefinitionError::invalid_value_type(at))?;
+                    bindings.push(LocalBinding { name, value });
+                }
 
-                dbg!(bindings);
-                todo!()
+                Ok(ExecutionItem::BindLocal(bindings).spanned(total_span.unwrap_or_else(|| (0, 0).into())))
             }
             "assert_addr" => {
                 let addr = line
@@ -227,7 +309,7 @@ impl<T: Iterator<Item = Spanned<Item>>> Parser<T> {
 
                 let rest = line.collect::<Vec<_>>();
                 if rest.is_empty() {
-                    Ok(ExecutionItem::Label(Label::AssertAddress(target)))
+                    Ok(ExecutionItem::Label(Label::AssertAddress(target)).spanned(at))
                 } else {
                     Err(AssertDefinitionError::assert_too_many(
                         Self::get_total_span(&rest).expect("line exists"),
@@ -244,6 +326,14 @@ impl<T: Iterator<Item = Spanned<Item>>> Parser<T> {
         let end = (a.offset() + a.len()).max(b.offset() + b.len());
         Some((start, end - start).into())
     }
+}
+
+fn long_span(start: SourceSpan, end: SourceSpan) -> SourceSpan {
+    (
+        start.offset(),
+        end.offset().max(start.offset()) + end.len() - start.offset(),
+    )
+        .into()
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -269,16 +359,35 @@ pub enum Value {
     Numeric(u16),
     Constant(String),
     Local(String),
+    Name(String),
+}
+
+impl Value {
+    pub(crate) fn spanned(self, at: SourceSpan) -> Spanned<Self> {
+        Spanned { item: self, at }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum ExecutionItem {
     Nothing,
-    DefineConstant { name: String, value: Value },
+    DefineConstant {
+        name: String,
+        value: Value,
+    },
     BindLocal(Vec<LocalBinding>),
-    Instruction(AsmInstruction),
+    Instruction {
+        opcode: String,
+        arguments: Vec<Value>,
+    },
     Label(Label),
     RawData(Vec<u16>),
+}
+
+impl ExecutionItem {
+    fn spanned(self, at: SourceSpan) -> Spanned<Self> {
+        Spanned { item: self, at }
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -290,19 +399,11 @@ pub enum Label {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LocalBinding {
-    name: String,
-    value: Value,
-}
-
-impl From<AsmInstruction> for ExecutionItem {
-    fn from(inst: AsmInstruction) -> Self {
-        Self::Instruction(inst)
-    }
+    pub(crate) name: String,
+    pub(crate) value: Value,
 }
 
 mod error {
-    use crate::parsing::Ident;
-    use crate::tokenizing::Spanned;
     use miette::{Diagnostic, SourceSpan};
     use tap::Conv;
     use thiserror::Error;
@@ -311,11 +412,6 @@ mod error {
     pub enum ConversionError {
         #[error("No rules expected this token")]
         NoRules {
-            #[label("here")]
-            at: SourceSpan,
-        },
-        #[error("Expected an identifier")]
-        ExpectedIdent {
             #[label("here")]
             at: SourceSpan,
         },
@@ -332,25 +428,21 @@ mod error {
         pub(super) fn no_rules(at: SourceSpan) -> Self {
             Self::NoRules { at }
         }
-
-        pub(super) fn expecting_ident(at: SourceSpan) -> Self {
-            Self::ExpectedIdent { at }
-        }
     }
 
     impl InstructionError {
-        pub(super) fn unknown_instruction(opcode: Spanned<Ident>) -> Self {
-            Self::UnknownInstruction { opcode }
+        pub(super) fn expecting_comma(at: SourceSpan) -> Self {
+            Self::ExpectedComma { at }
         }
 
-        pub(super) fn too_many_arguments(range: SourceSpan) -> Self {
-            Self::TooManyArguments { arguments: range }
+        pub(super) fn invalid_arg_type(at: SourceSpan) -> Self {
+            Self::InvalidArgType { at }
         }
     }
 
     impl InvocationError {
         pub(super) fn unknown_invocation(at: SourceSpan) -> Self {
-            Self::UnknownInvocation { at }.into()
+            Self::UnknownInvocation { at }
         }
     }
 
@@ -384,15 +476,15 @@ mod error {
 
     impl AssertDefinitionError {
         pub(super) fn assert_missing_addr(at: SourceSpan) -> Self {
-            Self::AssertMissingAddr { at }
+            Self::MissingAddr { at }
         }
 
         pub(super) fn assert_addr_type(at: SourceSpan) -> Self {
-            Self::AssertAddrType { at }
+            Self::AddrType { at }
         }
 
         pub(super) fn assert_too_many(at: SourceSpan) -> Self {
-            Self::AssertAddrTooMany { at }
+            Self::AddrTooMany { at }
         }
     }
 
@@ -400,19 +492,39 @@ mod error {
         pub(super) fn name_invalid_type(at: SourceSpan) -> Self {
             Self::NameInvalidType { at }
         }
+
+        pub(super) fn expecting_comma(at: SourceSpan) -> Self {
+            Self::ExpectedComma { at }
+        }
+
+        pub(super) fn no_equals(after: SourceSpan) -> Self {
+            Self::MissingEquals { after }
+        }
+
+        pub(super) fn not_an_equals(at: SourceSpan) -> Self {
+            Self::NotAnEquals { at }
+        }
+
+        pub(super) fn missing_value(after: SourceSpan) -> Self {
+            Self::MissingValue { after }
+        }
+
+        pub(super) fn invalid_value_type(at: SourceSpan) -> Self {
+            Self::InvalidValueType { at }
+        }
     }
 
     #[derive(Debug, Error, Diagnostic)]
     pub enum InstructionError {
-        #[error("Unknown instruction '{}'", .opcode.item.0)]
-        UnknownInstruction {
+        #[error("Expected a comma")]
+        ExpectedComma {
             #[label("here")]
-            opcode: Spanned<Ident>,
+            at: SourceSpan,
         },
-        #[error("Too many arguments")]
-        TooManyArguments {
+        #[error("Invalid type for arguments")]
+        InvalidArgType {
             #[label("here")]
-            arguments: SourceSpan,
+            at: SourceSpan,
         },
     }
 
@@ -473,17 +585,17 @@ mod error {
     #[derive(Debug, Error, Diagnostic)]
     pub enum AssertDefinitionError {
         #[error("Asserting an address requires an address to assert")]
-        AssertMissingAddr {
+        MissingAddr {
             #[label("here")]
             at: SourceSpan,
         },
         #[error("The address must be numeric")]
-        AssertAddrType {
+        AddrType {
             #[label("here")]
             at: SourceSpan,
         },
         #[error("Assert expects a single address")]
-        AssertAddrTooMany {
+        AddrTooMany {
             #[label("here")]
             at: SourceSpan,
         },
@@ -496,11 +608,31 @@ mod error {
             #[label("here")]
             at: SourceSpan,
         },
-        // #[error("Raw data cannot be included as-is")]
-        // ExposedData {
-        //     #[label("here")]
-        //     at: SourceSpan,
-        // },
+        #[error("Expected a comma")]
+        ExpectedComma {
+            #[label("here")]
+            at: SourceSpan,
+        },
+        #[error("Expected an equals sign")]
+        MissingEquals {
+            #[label("after this")]
+            after: SourceSpan,
+        },
+        #[error("Expected an equals sign")]
+        NotAnEquals {
+            #[label("here")]
+            at: SourceSpan,
+        },
+        #[error("Missing a value for assignment")]
+        MissingValue {
+            #[label("after this")]
+            after: SourceSpan,
+        },
+        #[error("Invalid type for assignment")]
+        InvalidValueType {
+            #[label("here")]
+            at: SourceSpan,
+        },
     }
 
     macro_rules! convert {
