@@ -206,8 +206,10 @@ version = "0.1.0"
 dependencies = [
  "c8asm-proc",
  "c8common",
+ "clap",
  "log",
  "miette",
+ "simplelog",
  "tap",
  "thiserror",
 ]

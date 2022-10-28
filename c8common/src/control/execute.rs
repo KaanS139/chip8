@@ -1,5 +1,5 @@
 use crate::control::{ControlledInterpreter, ControlledToInterpreter, FrameInfo, InterpreterState};
-use crate::hooks::{FurtherHooks, InterpreterHook, InterpreterHookBundle};
+use crate::hooks::{FurtherHooks, InterpreterHook};
 use crate::key::Keys;
 use crate::Display;
 use getset::{Getters, MutGetters};
@@ -154,24 +154,10 @@ impl<T: ControlledToInterpreter> Interpreter<T> {
 }
 
 impl<T: ControlledToInterpreter> Interpreter<T> {
-    fn new_with_hooks<H: InterpreterHookBundle<T>>(from: T, hooks: H) -> Self {
-        let Interpreter {
-            inner,
-            buzzer_active,
-            step_frequency,
-            internal_frequency_scale,
-            sixty_hertz_progress,
-            state,
-            ..
-        } = Interpreter::new(from);
+    fn new_with_hooks(from: T, hooks: Vec<Box<dyn InterpreterHook<T>>>) -> Self {
         Self {
-            inner,
-            buzzer_active,
-            step_frequency,
-            internal_frequency_scale,
-            sixty_hertz_progress,
-            state,
-            hooks: hooks.to_vec(),
+            hooks,
+            ..Interpreter::new(from)
         }
     }
 
@@ -187,33 +173,33 @@ impl<T: ControlledToInterpreter> Interpreter<T> {
 }
 
 impl<T: ControlledInterpreter> Interpreter<T> {
-    pub fn builder() -> InterpreterBuilder<T, ()> {
+    pub fn builder() -> InterpreterBuilder<T> {
         InterpreterBuilder::new()
     }
 }
 
 #[derive(Debug)]
-pub struct InterpreterBuilder<T, H> {
+pub struct InterpreterBuilder<T> {
     __phantom_interpreter: PhantomData<T>,
-    hooks: H,
+    hooks: Vec<Box<dyn InterpreterHook<T>>>,
 }
 
-impl<T: ControlledInterpreter, H: InterpreterHookBundle<T>> InterpreterBuilder<T, H> {
-    pub fn extend_with<N: InterpreterHook<T>>(
+impl<T: ControlledInterpreter> InterpreterBuilder<T> {
+    pub fn extend_with<N: InterpreterHook<T> + 'static>(
         self,
         with: N,
-    ) -> InterpreterBuilder<T, H::Extended<N>> {
-        let Self { hooks, .. } = self;
-        let hooks = hooks.extend_with(with);
+    ) -> InterpreterBuilder<T> {
+        let Self { mut hooks, .. } = self;
+        hooks.push(Box::new(with));
         InterpreterBuilder {
             hooks,
             __phantom_interpreter: Default::default(),
         }
     }
 
-    pub fn extend<N: InterpreterHook<T> + Default>(self) -> InterpreterBuilder<T, H::Extended<N>> {
-        let Self { hooks, .. } = self;
-        let hooks = hooks.extend_with(N::default());
+    pub fn extend<N: InterpreterHook<T> + Default + 'static>(self) -> InterpreterBuilder<T> {
+        let Self { mut hooks, .. } = self;
+        hooks.push(Box::new(N::default()));
         InterpreterBuilder {
             hooks,
             __phantom_interpreter: Default::default(),
@@ -225,10 +211,10 @@ impl<T: ControlledInterpreter, H: InterpreterHookBundle<T>> InterpreterBuilder<T
     }
 }
 
-impl<T: ControlledInterpreter> InterpreterBuilder<T, ()> {
+impl<T: ControlledInterpreter> InterpreterBuilder<T> {
     fn new() -> Self {
         Self {
-            hooks: (),
+            hooks: vec![],
             __phantom_interpreter: Default::default(),
         }
     }

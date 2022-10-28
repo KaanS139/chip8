@@ -18,12 +18,19 @@ impl InstructionBuilder for Chip8InstructionSet {
             "ret" => Self::no_args(at, arguments, (0x00, 0xEE)),
             "jp" => Self::jump(at, arguments, labels),
             "call" => Self::call(at, arguments, labels),
-            // SE, SNE
+            "se" => Self::skip(false, at, arguments),
+            "sne" => Self::skip(true, at, arguments),
             "ld" => Self::load(at, arguments, labels),
             "add" => Self::add(at, arguments),
+
+            op @ ("or" | "and" | "xor" | "sub" | "subn") => {
+                Self::operation(op, at, Self::two_args(at, arguments)?)
+            }
             // ALU
             // Rand
-            "drw" => Self::draw_sprite(at, arguments, labels),
+            "drw" => Self::draw_sprite(at, arguments),
+            "skp" => Self::skip_key(false, at, arguments),
+            "sknp" => Self::skip_key(true, at, arguments),
             _ => Err(InstructionError::UnknownInstruction { opcode, at }),
         }
     }
@@ -55,28 +62,112 @@ impl Chip8InstructionSet {
         }
     }
 
-    fn two_args(at: SourceSpan, mut arguments: Vec<ConcreteValue>) -> Result<(ConcreteValue, ConcreteValue), InstructionError> {
+    fn two_args(
+        at: SourceSpan,
+        mut arguments: Vec<ConcreteValue>,
+    ) -> Result<(ConcreteValue, ConcreteValue), InstructionError> {
         if let [_, _] = arguments[..] {
             let last = arguments.pop().expect("known by match");
             let first = arguments.pop().expect("known by match");
             Ok((first, last))
+        } else if arguments.len() > 2 {
+            Err(InstructionError::too_many_arguments(at, 2, arguments.len()))
         } else {
-            if arguments.len() > 2 {
-                Err(InstructionError::too_many_arguments(at, 2, arguments.len()))
-            } else {
-                Err(InstructionError::not_enough_arguments(at, 2, arguments.len()))
-            }
+            Err(InstructionError::not_enough_arguments(
+                at,
+                2,
+                arguments.len(),
+            ))
         }
     }
 
-    fn operation(op: &str, at: SourceSpan, args: (ConcreteValue, ConcreteValue)) -> Result<(u8, u8), InstructionError> {
-        todo!()
+    fn one_arg(
+        at: SourceSpan,
+        mut arguments: Vec<ConcreteValue>,
+    ) -> Result<ConcreteValue, InstructionError> {
+        if let [_] = arguments[..] {
+            let first = arguments.pop().expect("known by match");
+            Ok(first)
+        } else if arguments.len() > 2 {
+            Err(InstructionError::too_many_arguments(at, 1, arguments.len()))
+        } else {
+            Err(InstructionError::not_enough_arguments(
+                at,
+                1,
+                arguments.len(),
+            ))
+        }
     }
 
-    fn add(
+    fn skip(
+        invert: bool,
         at: SourceSpan,
         arguments: Vec<ConcreteValue>,
     ) -> Result<(u8, u8), InstructionError> {
+        use ConcreteValue::*;
+        let (first, last) = Self::two_args(at, arguments)?;
+        match (first, last) {
+            (Register(reg), Numeric(num)) => {
+                let byte = byte(at, num)?;
+                Ok((
+                    if invert { 0x40 } else { 0x30 } | register_to_byte(reg),
+                    byte,
+                ))
+            }
+            (Register(rx), Register(ry)) => Ok((
+                if invert { 0x90 } else { 0x50 } | register_to_byte(rx),
+                register_to_byte(ry) << 4,
+            )),
+            _ => Err(InstructionError::invalid_type(
+                at,
+                "a register+byte or register+register pair",
+                "something else",
+            )),
+        }
+    }
+
+    fn skip_key(
+        invert: bool,
+        at: SourceSpan,
+        arguments: Vec<ConcreteValue>,
+    ) -> Result<(u8, u8), InstructionError> {
+        use ConcreteValue::*;
+        match Self::one_arg(at, arguments)? {
+            Register(reg) => Ok((
+                0xE0 | register_to_byte(reg),
+                if invert { 0xA1 } else { 0x9E },
+            )),
+            _ => Err(InstructionError::invalid_type(
+                at,
+                "a register",
+                "something else",
+            )),
+        }
+    }
+
+    fn operation(
+        op: &str,
+        at: SourceSpan,
+        args: (ConcreteValue, ConcreteValue),
+    ) -> Result<(u8, u8), InstructionError> {
+        let vx = InstructionError::expects_register(at, args.0)?;
+        let vy = InstructionError::expects_register(at, args.1)?;
+        let (high, mut low) = (0x80 | register_to_byte(vx), register_to_byte(vy) << 4);
+
+        low |= match op {
+            "or" => 0x01,
+            "and" => 0x02,
+            "xor" => 0x03,
+            "add" => 0x04,
+            "sub" => 0x05,
+            "subn" => 0x07,
+            _ => panic!("Only operations should be passed to this function! {}", op),
+        };
+
+        Ok((high, low))
+    }
+
+    fn add(at: SourceSpan, arguments: Vec<ConcreteValue>) -> Result<(u8, u8), InstructionError> {
         use ConcreteValue::*;
         let (first, last) = Self::two_args(at, arguments)?;
         if let (Register(reg), Numeric(num)) = (&first, &last) {
@@ -90,7 +181,6 @@ impl Chip8InstructionSet {
     fn draw_sprite(
         at: SourceSpan,
         mut arguments: Vec<ConcreteValue>,
-        labels: &HashMap<String, u16>,
     ) -> Result<(u8, u8), InstructionError> {
         if let [_, _, _] = arguments[..] {
             let last = arguments.pop().expect("known by match");
@@ -112,16 +202,14 @@ impl Chip8InstructionSet {
                 0xD0 | register_to_byte(rx),
                 (register_to_byte(ry) << 4) | num,
             ))
+        } else if arguments.len() > 3 {
+            Err(InstructionError::too_many_arguments(at, 3, arguments.len()))
         } else {
-            if arguments.len() > 3 {
-                Err(InstructionError::too_many_arguments(at, 3, arguments.len()))
-            } else {
-                Err(InstructionError::not_enough_arguments(
-                    at,
-                    3,
-                    arguments.len(),
-                ))
-            }
+            Err(InstructionError::not_enough_arguments(
+                at,
+                3,
+                arguments.len(),
+            ))
         }
     }
 

@@ -29,15 +29,15 @@ fn main() {
     TermLogger::init(
         log_level,
         ConfigBuilder::new()
+            .add_filter_allow_str("c8asm")
             .add_filter_allow_str("c8common")
-            .add_filter_allow_str("c8int")
-            .add_filter_allow_str("chip8-base")
             .add_filter_allow_str("c8hooks")
+            .add_filter_allow_str("c8int")
+            .add_filter_allow_str("c8runner")
             .build(),
         TerminalMode::Stderr,
         ColorChoice::Always,
-    )
-    .expect("could not set up logging!");
+    ).expect("could not set up logging!");
 
     let int = c8int::Chip8Interpreter::new_from_file(rom_path);
     // let int = c8int::Chip8Interpreter::new_assembled_save("test_rng.ch8", |asm| {
@@ -51,7 +51,7 @@ fn main() {
 
     run(Interpreter::builder()
         // .extend_with(c8hooks::execution_dumper::ExecutionDumper::dump_to("exec.dump").unwrap())
-        .extend_with(c8hooks::recorder::Recorder::images_to_folder("output"))
+        // .extend_with(c8hooks::recorder::Recorder::images_to_folder("output"))
         .build(int)
         .with_frequency(frequency)
         .with_simulated_frequency(simulated_frequency));

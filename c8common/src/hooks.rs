@@ -26,38 +26,6 @@ pub trait InterpreterHook<T: ControlledInterpreter>: Debug + Send {
     fn post_cycle(&mut self, state: &mut InterpreterState) {}
 }
 
-pub trait InterpreterHookBundle<T: ControlledInterpreter> {
-    type Extended<N: InterpreterHook<T>>;
-
-    fn extend_with<N: InterpreterHook<T>>(self, with: N) -> Self::Extended<N>;
-
-    fn to_vec(self) -> Vec<Box<dyn InterpreterHook<T>>>;
-}
-
-impl<T: ControlledInterpreter> InterpreterHookBundle<T> for () {
-    type Extended<N: InterpreterHook<T>> = (N,);
-
-    fn extend_with<N: InterpreterHook<T>>(self, with: N) -> Self::Extended<N> {
-        (with,)
-    }
-
-    fn to_vec(self) -> Vec<Box<dyn InterpreterHook<T>>> {
-        vec![]
-    }
-}
-
-impl<T: ControlledInterpreter, A: InterpreterHook<T> + 'static> InterpreterHookBundle<T> for (A,) {
-    type Extended<N: InterpreterHook<T>> = (A, N);
-
-    fn extend_with<N: InterpreterHook<T>>(self, with: N) -> Self::Extended<N> {
-        (self.0, with)
-    }
-
-    fn to_vec(self) -> Vec<Box<dyn InterpreterHook<T>>> {
-        vec![Box::new(self.0)]
-    }
-}
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum FurtherHooks {
     Continue,

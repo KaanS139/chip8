@@ -1,6 +1,7 @@
 use crate::prelude::*;
 use asm::ROM;
 use c8asm::compilation::Assembler;
+use c8asm::instruction_sets::Chip8InstructionSet;
 use c8common::control::{ControlledInterpreter, FrameInfo};
 use c8common::display::ScreenModification;
 use c8common::key::Keys;
@@ -425,16 +426,16 @@ impl Chip8Interpreter {
     pub fn new_assembled_save<F: FnOnce(&mut Assembler) -> &mut Assembler>(
         to: impl AsRef<std::path::Path>,
         with: F,
-    ) -> Self {
+    ) -> Result<Self, std::io::Error> {
         let program = Self::assembled_program(with);
-        program.save(to);
-        Self::new_from_rom(program)
+        program.save(to)?;
+        Ok(Self::new_from_rom(program))
     }
 
     fn assembled_program<F: FnOnce(&mut Assembler) -> &mut Assembler>(with: F) -> ROM {
         let mut assembler = Assembler::new();
         (with)(&mut assembler);
-        assembler.assemble().unwrap() // TODO
+        assembler.assemble::<Chip8InstructionSet>().unwrap() // TODO
     }
 
     pub fn new_from_mem_file(path: impl AsRef<std::path::Path>) -> Self {

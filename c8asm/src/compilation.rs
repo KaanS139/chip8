@@ -324,7 +324,6 @@ mod error {
     use crate::compilation::ConcreteValue;
     use c8common::GeneralRegister;
     use miette::{Diagnostic, SourceSpan};
-    use std::convert::Infallible;
     use std::fmt::Display;
     use thiserror::Error;
 
