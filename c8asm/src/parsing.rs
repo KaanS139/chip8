@@ -13,7 +13,7 @@ struct Parser<T: Iterator<Item = Spanned<Item>>> {
 
 impl<T: Iterator<Item = Spanned<Item>>> Parser<T> {
     fn new(tokens: T) -> Self {
-        Self {
+        Parser {
             tokens: tokens.peekable(),
         }
     }
@@ -111,19 +111,25 @@ impl<T: Iterator<Item = Spanned<Item>>> Parser<T> {
                     .to_lexical()
                     .and_then(|i| i.as_numeric())
                     .ok_or_else(|| DataDefinitionError::data_entry(at, true))?;
+                let number = Self::parse_datum(number, at)?;
                 data.push(number);
                 expecting_number = false;
             } else if item.as_punct().map(|p| p == Punct::Comma) != Some(true) {
-                    Err(DataDefinitionError::data_entry(at, false))?
+                Err(DataDefinitionError::data_entry(at, false))?
             } else {
                 expecting_number = true;
             }
         }
-        assert!(
-            !data.is_empty(),
-            "there must be at least one number in here, guaranteed by peeking"
-        );
+        // assert!(
+        //     !data.is_empty(),
+        //     "there must be at least one number in here, guaranteed by peeking"
+        // );
         Ok(ExecutionItem::RawData(data).spanned(total_span.unwrap_or_else(|| (0, 0).into())))
+    }
+
+    fn parse_datum(from: u16, at: SourceSpan) -> Result<u8, DataDefinitionError> {
+        from.try_into()
+            .map_err(|_| DataDefinitionError::number_too_big(from, at))
     }
 
     fn get_instruction_arguments<S: Iterator<Item = Spanned<Item>>>(
@@ -146,6 +152,9 @@ impl<T: Iterator<Item = Spanned<Item>>> Parser<T> {
                 }
             }
             expects_comma = true;
+            if line.peek().map(|n| n.item == Item::Linebreak) == Some(true) {
+                break;
+            }
             let first = line.next();
             if first.is_none() {
                 break;
@@ -165,7 +174,7 @@ impl<T: Iterator<Item = Spanned<Item>>> Parser<T> {
                     _ => panic!("Only `Period` and `Dollar` can be used as prefixes!"),
                 }),
                 Lexical::Numeric(num) => Some(Value::Numeric(num)),
-                Lexical::Ident(ident) => Some(Value::Name(ident)),
+                Lexical::Ident(ident) => Some(Value::name_or_label(ident)),
             }
             .ok_or_else(|| InstructionError::invalid_arg_type(at))?;
             args.push(value);
@@ -241,6 +250,9 @@ impl<T: Iterator<Item = Spanned<Item>>> Parser<T> {
                         }
                     }
                     expects_comma = true;
+                    // if line.peek().map(|n| n.item == Item::Linebreak) == Some(true) {
+                    //     break;
+                    // } TODO
                     let name = line.next();
                     if name.is_none() {
                         break;
@@ -275,13 +287,14 @@ impl<T: Iterator<Item = Spanned<Item>>> Parser<T> {
                             _ => panic!("Only `Period` and `Dollar` can be used as prefixes!"),
                         }),
                         Lexical::Numeric(num) => Some(Value::Numeric(num)),
-                        Lexical::Ident(ident) => Some(Value::Name(ident)),
+                        Lexical::Ident(ident) => Some(Value::name_or_label(ident)),
                     }
                     .ok_or_else(|| NameDefinitionError::invalid_value_type(at))?;
                     bindings.push(LocalBinding { name, value });
                 }
 
-                Ok(ExecutionItem::BindLocal(bindings).spanned(total_span.unwrap_or_else(|| (0, 0).into())))
+                Ok(ExecutionItem::BindLocal(bindings)
+                    .spanned(total_span.unwrap_or_else(|| (0, 0).into())))
             }
             "assert_addr" => {
                 let addr = line
@@ -308,7 +321,9 @@ impl<T: Iterator<Item = Spanned<Item>>> Parser<T> {
                 let target = target.ok_or_else(|| AssertDefinitionError::assert_addr_type(at))?;
 
                 let rest = line.collect::<Vec<_>>();
-                if rest.is_empty() {
+                if rest.is_empty()
+                /*|| rest.get(0).unwrap().item == Item::Linebreak TODO */
+                {
                     Ok(ExecutionItem::Label(Label::AssertAddress(target)).spanned(at))
                 } else {
                     Err(AssertDefinitionError::assert_too_many(
@@ -359,12 +374,41 @@ pub enum Value {
     Numeric(u16),
     Constant(String),
     Local(String),
-    Name(String),
+    Name(ReservedName),
+    Label(String),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum ReservedName {
+    /// Address register
+    I,
+    /// Delay timer
+    DT,
+    /// Sound timer
+    ST,
+    /// Load from key
+    K,
+    /// Sprite flag
+    F,
+    /// Binary coded decimal flag
+    B,
 }
 
 impl Value {
     pub(crate) fn spanned(self, at: SourceSpan) -> Spanned<Self> {
         Spanned { item: self, at }
+    }
+
+    pub(crate) fn name_or_label(name: String) -> Self {
+        Self::Name(match &name.to_ascii_uppercase()[..] {
+            "I" => ReservedName::I,
+            "DT" => ReservedName::DT,
+            "ST" => ReservedName::ST,
+            "K" => ReservedName::K,
+            "F" => ReservedName::F,
+            "B" => ReservedName::B,
+            _ => return Self::Label(name),
+        })
     }
 }
 
@@ -381,7 +425,7 @@ pub enum ExecutionItem {
         arguments: Vec<Value>,
     },
     Label(Label),
-    RawData(Vec<u16>),
+    RawData(Vec<u8>),
 }
 
 impl ExecutionItem {
@@ -471,6 +515,18 @@ mod error {
 
         pub(super) fn exposed_data(at: SourceSpan) -> Self {
             Self::ExposedData { at }
+        }
+
+        pub(super) fn number_too_big(number: u16, at: SourceSpan) -> Self {
+            let (high, low) = ((number & 0xFF00) >> 8, number & 0xFF);
+            Self::NumberTooBig {
+                number,
+                at,
+                help: format!(
+                    "Try splitting into two bytes: 0x{:02X}, 0x{:02X}",
+                    high, low
+                ),
+            }
         }
     }
 
@@ -579,6 +635,14 @@ mod error {
         ExposedData {
             #[label("here")]
             at: SourceSpan,
+        },
+        #[error("This number is too big to be used as a piece of raw data")]
+        NumberTooBig {
+            number: u16,
+            #[label("here")]
+            at: SourceSpan,
+            #[help]
+            help: String,
         },
     }
 

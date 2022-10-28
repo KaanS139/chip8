@@ -1,4 +1,5 @@
 use c8asm::compilation::compile;
+use c8asm::instruction_sets::Chip8InstructionSet;
 use c8asm::parsing::parse;
 use c8asm::tokenizing::tokenize;
 
@@ -17,11 +18,10 @@ fn main() -> miette::Result<()> {
         .map_err(|error| miette::Error::new(error).with_source_code(contents.clone()))?;
     let parts = parse(tokens)
         .map_err(|error| miette::Error::new(error).with_source_code(contents.clone()))?;
-    let rom =
-        compile(parts).map_err(|error| miette::Error::new(error).with_source_code(contents))?;
+    let rom = compile::<Chip8InstructionSet>(parts)
+        .map_err(|error| miette::Error::new(error).with_source_code(contents))?;
 
-    #[allow(clippy::drop_non_drop)]
-    drop(dbg!(rom));
+    rom.save("roms/out.ch8");
 
     Ok(())
 }

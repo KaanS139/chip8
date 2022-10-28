@@ -61,7 +61,8 @@ impl GeneralRegister {
     }
 
     pub fn from_byte(index: u8) -> Self {
-        Self::from_byte_checked(index).unwrap_or_else(|| panic!("Invalid index for register! {}", index))
+        Self::from_byte_checked(index)
+            .unwrap_or_else(|| panic!("Invalid index for register! {}", index))
     }
 
     fn from_byte_checked(index: u8) -> Option<Self> {

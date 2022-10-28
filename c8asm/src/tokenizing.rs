@@ -142,7 +142,7 @@ impl MultiCharItem {
         Self::Numeric(s.into())
     }
 
-    fn into_item(self) -> Result<Item, String> {
+    fn into_item(self) -> Result<Item, InvalidNumberReason> {
         Ok(match self {
             Self::PrefixedIdent(prefix, s) => match s {
                 Some(s) => Item::Lexical(Lexical::PrefixedIdent(prefix, s)),
@@ -150,11 +150,19 @@ impl MultiCharItem {
             },
             Self::Ident(s) => Item::Lexical(Lexical::Ident(s)),
             Self::Numeric(n) => Item::Lexical(Lexical::Numeric({
-                if let Some(hex) = n.strip_prefix("0x") {
-                    u16::from_str_radix(hex, 16).map_err(|_| n)?
+                let large = if let Some(hex) = n.strip_prefix("0x") {
+                    u64::from_str_radix(hex, 16)
+                        .map_err(|_| InvalidNumberReason::InvalidHex(n.clone()))?
+                } else if let Some(hex) = n.strip_prefix("0b") {
+                    u64::from_str_radix(hex, 2)
+                        .map_err(|_| InvalidNumberReason::InvalidBinary(n.clone()))?
                 } else {
-                    n.parse().map_err(|_| n)?
-                }
+                    n.parse()
+                        .map_err(|_| InvalidNumberReason::InvalidDecimal(n.clone()))?
+                };
+                large
+                    .try_into()
+                    .map_err(|_| InvalidNumberReason::TooLarge(n))?
             })),
         })
     }
@@ -205,10 +213,7 @@ pub fn tokenize(original: &str) -> Result<Vec<Spanned<Item>>, TokenizingError> {
                 if let Some((start, current)) = current_ident {
                     let range = (start, index - start).into();
                     output.push(Spanned::new(
-                        current.into_item().map_err(|e| InvalidNumber {
-                            offending_string: e,
-                            at: range,
-                        })?,
+                        current.into_item().map_err(|e| e.error(range))?,
                         range,
                     ));
                     current_ident = None;
@@ -246,10 +251,7 @@ pub fn tokenize(original: &str) -> Result<Vec<Spanned<Item>>, TokenizingError> {
             if let Some((start, current)) = current_ident {
                 let range = (start, index - start).into();
                 output.push(Spanned::new(
-                    current.into_item().map_err(|e| InvalidNumber {
-                        offending_string: e,
-                        at: range,
-                    })?,
+                    current.into_item().map_err(|e| e.error(range))?,
                     range,
                 ));
                 current_ident = None;
@@ -284,6 +286,14 @@ pub fn tokenize(original: &str) -> Result<Vec<Spanned<Item>>, TokenizingError> {
         });
     }
 
+    if let Some((start, current)) = current_ident {
+        let range = (start, original.len() - start).into();
+        output.push(Spanned::new(
+            current.into_item().map_err(|e| e.error(range))?,
+            range,
+        ));
+    }
+
     Ok(output)
 }
 
@@ -300,6 +310,8 @@ pub enum TokenizingError {
     #[diagnostic(code(c8common::asm::invalid_item))]
     InvalidNumber {
         offending_string: String,
+        #[help]
+        reason: Option<String>,
         #[label("here")]
         at: SourceSpan,
     },
@@ -310,4 +322,28 @@ pub enum TokenizingError {
         #[label("here")]
         at: SourceSpan,
     },
+}
+
+#[derive(Debug, Clone)]
+pub enum InvalidNumberReason {
+    TooLarge(String),
+    InvalidHex(String),
+    InvalidBinary(String),
+    InvalidDecimal(String),
+}
+
+impl InvalidNumberReason {
+    pub fn error(self, at: SourceSpan) -> TokenizingError {
+        let (reason, offending) = match self {
+            InvalidNumberReason::TooLarge(s) => ("this number is too large", s),
+            InvalidNumberReason::InvalidHex(s) => ("the hexadecimal is invalid", s),
+            InvalidNumberReason::InvalidBinary(s) => ("invalid binary", s),
+            InvalidNumberReason::InvalidDecimal(s) => ("invalid decimal", s),
+        };
+        TokenizingError::InvalidNumber {
+            offending_string: offending,
+            reason: Some(reason.to_string()),
+            at,
+        }
+    }
 }

@@ -1,23 +1,38 @@
 $CHARACTER_SPRITE_LENGTH 5
 
-start: ; Address 0x200
-    .assert_addr 0x200
-    .name a = 1, b = 2, c = 3
-    CALL reset
+.name sprite_x = VA, sprite_y = VB
 
-    JP exit
+.assert_addr 0x200
+CALL entry
 exit:
     JP exit
-reset:
-    CLS
-    .name select_number = V0
-    LD .select_number, 1
-    LD F, .select_number
-    .name x = V0, y = V1
-    LD .x, 2
-    LD .y, 4
-    DRW .x, .y, $CHARACTER_SPRITE_LENGTH
+
+static:
+
+entry:
+    CALL clear
+    LD I, working_memory
+    .name to_bcd = V0
+    LD .to_bcd, 123
+    LD B, .to_bcd
+    .name h = V0, t = V1, u = V2
+    LD V2, I
+
+    LD .sprite_x, 5
+    LD .sprite_y, 5
+    LD F, .h
+    DRW .sprite_x, .sprite_y, $CHARACTER_SPRITE_LENGTH
+    ADD .sprite_x, 6
+    LD F, .t
+    DRW .sprite_x, .sprite_y, $CHARACTER_SPRITE_LENGTH
+    ADD .sprite_x, 6
+    LD F, .u
+    DRW .sprite_x, .sprite_y, $CHARACTER_SPRITE_LENGTH
+
     RET
 
-data:
-    .data 0, 1, 2, 3, 4, 5
+clear:
+    CLS
+    RET
+
+working_memory:
